@@ -1,101 +1,105 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/auth_provider.dart';
 
-class RegisterScreen extends StatefulWidget {
+class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   @override
-  State<RegisterScreen> createState() => _RegisterScreenState();
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController nameCtrl = TextEditingController();
-  final TextEditingController emailCtrl = TextEditingController();
-  final TextEditingController passCtrl = TextEditingController();
-  bool _loading = false;
+  final _nameC = TextEditingController();
+  final _emailC = TextEditingController();
+  final _passC = TextEditingController();
   bool _obscure = true;
 
   @override
+  void dispose() {
+    _nameC.dispose();
+    _emailC.dispose();
+    _passC.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = ref.watch(authControllerProvider);
+
+    ref.listen(authControllerProvider, (prev, next) {
+      if (next.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(next.error!)),
+        );
+      } else if (!next.loading && next.user != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Kayıt başarılı! E-posta doğrulaması gönderildi.')),
+        );
+        Navigator.of(context).pushReplacementNamed('/home');
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(title: const Text('Kayıt Ol')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: nameCtrl,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Ad Soyad',
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                  validator: (v) => (v == null || v.isEmpty) ? 'Ad soyad gerekli' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'E-posta',
-                    prefixIcon: Icon(Icons.email),
-                  ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'E-posta gerekli';
-                    if (!v.contains('@')) return 'Geçerli bir e-posta girin';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: passCtrl,
-                  obscureText: _obscure,
-                  decoration: InputDecoration(
-                    labelText: 'Şifre (min 6)',
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                      icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                    ),
-                  ),
-                  validator: (v) => (v == null || v.length < 6) ? 'En az 6 karakter' : null,
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _loading
-                        ? null
-                        : () async {
-                            if (!_formKey.currentState!.validate()) return;
-                            setState(() => _loading = true);
-                            try {
-                              await context.read<AuthProvider>().signUp(
-                                    name: nameCtrl.text.trim(),
-                                    email: emailCtrl.text.trim(),
-                                    password: passCtrl.text,
-                                  );
-                              if (mounted) Navigator.of(context).pop(); // RootDecider karar verecek
-                            } finally {
-                              if (mounted) setState(() => _loading = false);
-                            }
-                          },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                    child: Text(_loading ? 'Kayıt yapılıyor...' : 'Kayıt Ol'),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              TextFormField(
+                controller: _nameC,
+                decoration: const InputDecoration(labelText: 'Ad Soyad'),
+              ),
+              TextFormField(
+                controller: _emailC,
+                decoration: const InputDecoration(labelText: 'E-posta'),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) => (v == null || !v.contains('@')) ? 'Geçerli e-posta girin' : null,
+              ),
+              TextFormField(
+                controller: _passC,
+                obscureText: _obscure,
+                decoration: InputDecoration(
+                  labelText: 'Şifre',
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setState(() => _obscure = !_obscure),
                   ),
                 ),
-              ],
-            ),
+                validator: (v) => (v != null && v.length >= 6) ? null : 'En az 6 karakter',
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: state.loading
+                      ? null
+                      : () {
+                          if (_formKey.currentState!.validate()) {
+                            ref.read(authControllerProvider.notifier).register(
+                                  email: _emailC.text,
+                                  password: _passC.text,
+                                  displayName: _nameC.text,
+                                );
+                          }
+                        },
+                  child: state.loading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Kayıt Ol'),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
+                child: const Text('Hesabın var mı? Giriş yap'),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 }
+

@@ -1,81 +1,80 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-import 'core/providers/onboarding_provider.dart';
+// 🔹 Provider dosyaları
 import 'core/providers/auth_provider.dart';
+import 'core/providers/onboarding_provider.dart';
+
+// 🔹 Ekranlar
 import 'features/onboarding/screens/onboarding_screen.dart';
-// Login/Register henüz boş; Adım 4'te dolduracağız ama import edip ismi kullanalım:
 import 'features/auth/screens/login_screen.dart';
-
-void main() {
+import 'features/auth/screens/register_screen.dart';
+import 'features/home/home_view.dart';
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const TarifDefterimApp());
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  runApp(const ProviderScope(child: MyApp()));
 }
 
-class TarifDefterimApp extends StatelessWidget {
-  const TarifDefterimApp({super.key});
+class MyApp extends ConsumerWidget {
+  const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => OnboardingProvider()..init()),
-        ChangeNotifierProvider(create: (_) => AuthProvider()),
-      ],
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'Tarif Defterim',
-        theme: ThemeData(primarySwatch: Colors.orange),
-        home: const _RootDecider(),
-      ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Tarif Defterim',
+      theme: ThemeData(useMaterial3: true),
+      // 🔹 Basit named routes
+      routes: {
+        '/onboarding': (_) => const OnboardingScreen(),
+        '/login': (_) => const LoginScreen(),
+        '/register': (_) => const RegisterScreen(),
+        '/home': (_) => const HomeView(),
+      },
+      home: const _RootGate(),
     );
   }
 }
 
-class _RootDecider extends StatelessWidget {
-  const _RootDecider();
+/// 🔹 İlk açılışta onboarding, sonra login/home kontrolü
+class _RootGate extends ConsumerWidget {
+  const _RootGate();
 
   @override
-  Widget build(BuildContext context) {
-    final onboarding = context.watch<OnboardingProvider>();
-    final auth = context.watch<AuthProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final onboarding = ref.watch(onboardingDoneProvider);
 
-    if (!onboarding.isReady) {
-      return const Scaffold(
+    return onboarding.when(
+      loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (!onboarding.isCompleted) {
-      return const OnboardingScreen();
-    }
-
-    return auth.isLoggedIn ? const DummyHomeScreen() : const LoginScreen();
-  }
-}
-
-// Geçici anasayfa (giriş sonrası)
-class DummyHomeScreen extends StatelessWidget {
-  const DummyHomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tarif Defterim')),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Hoş geldin, ${auth.userEmail ?? 'Misafir'}'),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () => context.read<AuthProvider>().signOut(),
-              child: const Text('Çıkış Yap'),
-            ),
-          ],
-        ),
       ),
+      error: (_, __) => const Scaffold(
+        body: Center(child: Text('Onboarding yüklenemedi')),
+      ),
+      data: (done) {
+        if (!done) {
+          // 🔹 Onboarding ekranı ilk kez gösterilecek
+          return const OnboardingScreen();
+        }
+
+        // 🔹 Onboarding tamamlandıysa Auth durumuna bak
+        final authStream = ref.watch(firebaseAuthStateProvider);
+        return authStream.when(
+          data: (user) => user == null
+              ? const LoginScreen()
+              : const HomeView(),
+          loading: () => const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          ),
+          error: (_, __) => const Scaffold(
+            body: Center(child: Text('Oturum kontrolü hatası')),
+          ),
+        );
+      },
     );
   }
 }
+

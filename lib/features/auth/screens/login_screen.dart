@@ -1,100 +1,116 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/auth_provider.dart';
-import 'register_screen.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController emailCtrl = TextEditingController();
-  final TextEditingController passCtrl = TextEditingController();
-  bool _loading = false;
+  final _emailC = TextEditingController();
+  final _passC = TextEditingController();
   bool _obscure = true;
 
   @override
+  void dispose() {
+    _emailC.dispose();
+    _passC.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = ref.watch(authControllerProvider);
+
+    ref.listen(authControllerProvider, (prev, next) {
+      if (next.error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
+      } else if (!next.loading && next.user != null) {
+        Navigator.of(context).pushReplacementNamed('/home');
+      }
+    });
+
     return Scaffold(
       appBar: AppBar(title: const Text('Giriş Yap')),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'E-posta',
-                    prefixIcon: Icon(Icons.email),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            children: [
+              TextFormField(
+                controller: _emailC,
+                decoration: const InputDecoration(labelText: 'E-posta'),
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) => (v == null || !v.contains('@')) ? 'Geçerli e-posta girin' : null,
+              ),
+              TextFormField(
+                controller: _passC,
+                obscureText: _obscure,
+                decoration: InputDecoration(
+                  labelText: 'Şifre',
+                  suffixIcon: IconButton(
+                    icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                    onPressed: () => setState(() => _obscure = !_obscure),
                   ),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'E-posta gerekli';
-                    if (!v.contains('@')) return 'Geçerli bir e-posta girin';
-                    return null;
-                  },
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: passCtrl,
-                  obscureText: _obscure,
-                  decoration: InputDecoration(
-                    labelText: 'Şifre',
-                    prefixIcon: const Icon(Icons.lock),
-                    suffixIcon: IconButton(
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                      icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
-                    ),
-                  ),
-                  validator: (v) => (v == null || v.length < 6) ? 'En az 6 karakter' : null,
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _loading
+                validator: (v) => (v != null && v.length >= 6) ? null : 'En az 6 karakter',
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  TextButton(
+                    onPressed: state.loading
                         ? null
-                        : () async {
-                            if (!_formKey.currentState!.validate()) return;
-                            setState(() => _loading = true);
-                            try {
-                              await context.read<AuthProvider>().signIn(
-                                    email: emailCtrl.text.trim(),
-                                    password: passCtrl.text,
-                                  );
-                              if (mounted) Navigator.of(context).pop(); // RootDecider tekrar karar verir
-                            } finally {
-                              if (mounted) setState(() => _loading = false);
+                        : () {
+                            if (_emailC.text.trim().isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Önce e-posta yazın')),
+                              );
+                              return;
                             }
+                            ref.read(authControllerProvider.notifier).sendPasswordReset(_emailC.text);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Şifre sıfırlama e-postası gönderildi')),
+                            );
                           },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                    child: Text(_loading ? 'Giriş yapılıyor...' : 'Giriş Yap'),
+                    child: const Text('Şifreyi Sıfırla'),
                   ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pushReplacementNamed('/register'),
+                    child: const Text('Hesabın yok mu? Kayıt ol'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: state.loading
+                      ? null
+                      : () {
+                          if (_formKey.currentState!.validate()) {
+                            ref.read(authControllerProvider.notifier).signIn(
+                                  email: _emailC.text,
+                                  password: _passC.text,
+                                );
+                          }
+                        },
+                  child: state.loading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Giriş Yap'),
                 ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const RegisterScreen()),
-                    );
-                  },
-                  child: const Text('Hesabın yok mu? Kayıt ol'),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 }
+

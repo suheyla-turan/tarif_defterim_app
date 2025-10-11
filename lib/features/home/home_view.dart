@@ -1,54 +1,28 @@
 import 'package:flutter/material.dart';
-import '../../core/services/stt_service.dart';
-import '../../core/services/tts_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/providers/auth_provider.dart';
 
-class HomeView extends StatefulWidget {
+class HomeView extends ConsumerWidget {
   const HomeView({super.key});
-  @override
-  State<HomeView> createState() => _HomeViewState();
-}
-
-class _HomeViewState extends State<HomeView> {
-  final stt = STTService();
-  final tts = TTSService();
-  String lastHeard = '';
 
   @override
-  void initState() {
-    super.initState();
-    tts.init();
-    stt.init();
-  }
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = ref.watch(authControllerProvider).user;
+    final name = user?.displayName ?? user?.email ?? 'Kullanıcı';
 
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Anasayfa')),
-      body: ListView(
-        children: [
-          // mevcut listeler...
-          const Divider(),
-          ListTile(
-            title: Text('Çırak test: $lastHeard'),
-            subtitle: const Text('Bas-konuş (TR), duyduğunu tekrar et'),
-            trailing: IconButton(
-              icon: Icon(stt.isListening ? Icons.stop : Icons.mic),
-              onPressed: () async {
-                if (stt.isListening) {
-                  await stt.stop();
-                } else {
-                  await stt.listen((text) {
-                    setState(() => lastHeard = text);
-                  });
-                }
-              },
-            ),
-            onLongPress: () async {
-              if (lastHeard.isNotEmpty) await tts.speak(lastHeard);
-            },
+      appBar: AppBar(
+        title: Text('Hoş geldin, $name'),
+        actions: [
+          IconButton(
+            onPressed: () => ref.read(authControllerProvider.notifier).signOut(),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Çıkış',
           ),
         ],
       ),
+      body: const Center(child: Text('Tarif Defterim anasayfa')),
     );
   }
 }
+

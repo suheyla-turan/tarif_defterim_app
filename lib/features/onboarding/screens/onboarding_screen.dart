@@ -1,20 +1,30 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 import '../../../core/providers/onboarding_provider.dart';
 import '../../auth/screens/login_screen.dart';
 
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final PageController _controller = PageController();
   bool isLastPage = false;
+
+  Future<void> _finishOnboarding() async {
+    await ref.read(onboardingProvider).completeOnboarding(); // ✅ Riverpod
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,31 +67,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // ATLA -> onboarding tamamlandı say ve Login'e geç
                   TextButton(
-                    onPressed: () async {
-                      await context.read<OnboardingProvider>().completeOnboarding();
-                      if (context.mounted) {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                        );
-                      }
-                    },
+                    onPressed: _finishOnboarding, // ✅ Atla
                     child: const Text('Atla'),
                   ),
-                  // Son sayfada "Başla", değilse "İleri"
                   isLastPage
                       ? ElevatedButton(
-                          onPressed: () async {
-                            await context.read<OnboardingProvider>().completeOnboarding();
-                            if (context.mounted) {
-                              Navigator.pushReplacement(
-                                context,
-                                MaterialPageRoute(builder: (_) => const LoginScreen()),
-                              );
-                            }
-                          },
+                          onPressed: _finishOnboarding, // ✅ Başla
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.orange,
                             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -118,7 +110,6 @@ class _OnboardingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Görseller henüz yoksa Placeholder ile sorunsuz test edebilirsin.
     Widget img;
     if (image != null) {
       img = Image.asset(
@@ -133,11 +124,7 @@ class _OnboardingPage extends StatelessWidget {
           color: Colors.orange.withOpacity(0.1),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Icon(
-          Icons.restaurant_menu,
-          size: 80,
-          color: Colors.orange,
-        ),
+        child: const Icon(Icons.restaurant_menu, size: 80, color: Colors.orange),
       );
     }
 
@@ -157,3 +144,4 @@ class _OnboardingPage extends StatelessWidget {
     );
   }
 }
+

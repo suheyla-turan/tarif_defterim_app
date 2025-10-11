@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class OnboardingProvider extends ChangeNotifier {
@@ -31,3 +32,16 @@ class OnboardingProvider extends ChangeNotifier {
     notifyListeners();
   }
 }
+
+// Riverpod provider
+final onboardingProvider = ChangeNotifierProvider<OnboardingProvider>((ref) {
+  final provider = OnboardingProvider();
+  provider.init();
+  return provider;
+});
+
+// Async provider for onboarding completion status
+final onboardingDoneProvider = FutureProvider<bool>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool('onboarding_completed') ?? false;
+});
