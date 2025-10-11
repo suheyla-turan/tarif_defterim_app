@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.tarifdefterim.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.tarifdefterim.app"
@@ -20,6 +20,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Disable resource shrinking unless code shrinking is enabled
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -27,6 +29,7 @@ android {
         }
         debug {
             isDebuggable = true
+            isShrinkResources = false
         }
     }
 
