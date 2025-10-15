@@ -1,17 +1,12 @@
+// lib/features/auth/application/auth_controller.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../features/auth/data/auth_repository.dart';
-import '../../features/auth/models/app_user.dart';
+import '../data/auth_repository.dart';
+import '../models/app_user.dart';
 
 // Repository provider
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository());
 
-// FirebaseAuth stream -> oturum dinleme
-final firebaseAuthStateProvider = StreamProvider<User?>(
-  (ref) => ref.watch(authRepositoryProvider).authStateChanges(),
-);
-
-// ---- Controller & State ----
 class AuthState {
   final bool loading;
   final String? error;
@@ -36,6 +31,7 @@ class AuthController extends StateNotifier<AuthState> {
   final AuthRepository _repo;
   AuthController(this._repo) : super(const AuthState());
 
+  // ✅ KAYIT: isim/soyisim destekli
   Future<void> register({
     required String email,
     required String password,
@@ -58,7 +54,11 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> signIn({required String email, required String password}) async {
+  // ✅ GİRİŞ
+  Future<void> signIn({
+    required String email,
+    required String password,
+  }) async {
     state = state.copyWith(loading: true, error: null);
     try {
       final u = await _repo.signInWithEmail(email: email, password: password);
@@ -70,19 +70,24 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  // ✅ ÇIKIŞ
   Future<void> signOut() async {
     await _repo.signOut();
     state = const AuthState();
   }
 
+  // ✅ ŞİFRE SIFIRLA
   Future<void> sendPasswordReset(String email) async {
     try {
       await _repo.sendPasswordReset(email);
     } on FirebaseAuthException catch (e) {
       state = state.copyWith(error: _mapAuthCode(e.code));
+    } catch (_) {
+      state = state.copyWith(error: 'Bir hata oluştu.');
     }
   }
 
+  // ✅ Hata kodu -> kullanıcı dostu mesaj
   String _mapAuthCode(String code) {
     switch (code) {
       case 'email-already-in-use':

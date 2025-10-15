@@ -30,7 +30,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (next.error != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
       } else if (!next.loading && next.user != null) {
+        // Giriş başarılı olduktan sonra anasayfaya yönlendir
         Navigator.of(context).pushReplacementNamed('/home');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Giriş başarılı! Hoş geldiniz.')),
+        );
       }
     });
 

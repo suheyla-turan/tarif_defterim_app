@@ -17,26 +17,40 @@ class AuthRepository {
   Future<AppUser> registerWithEmail({
     required String email,
     required String password,
-    String? displayName,
+    String? firstName,   // ✅ yeni
+    String? lastName,    // ✅ yeni
   }) async {
     final cred = await _auth.createUserWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
 
-    if (displayName != null && displayName.trim().isNotEmpty) {
-      await cred.user!.updateDisplayName(displayName.trim());
+    // Display name'i "İsim Soyisim" olarak ayarla (varsa)
+    final fullName = [firstName, lastName]
+        .where((e) => (e ?? '').trim().isNotEmpty)
+        .join(' ')
+        .trim();
+    if (fullName.isNotEmpty) {
+      await cred.user!.updateDisplayName(fullName);
     }
 
     // Firestore profil belgesi
     final appUser = AppUser(
       uid: cred.user!.uid,
       email: cred.user!.email!,
-      displayName: displayName,
+      firstName: firstName,
+      lastName: lastName,
+      displayName: fullName.isEmpty ? null : fullName,
+      country: null,
+      city: null,
       createdAt: DateTime.now(),
       emailVerified: cred.user!.emailVerified,
     );
-    await _db.collection('users').doc(appUser.uid).set(appUser.toMap(), SetOptions(merge: true));
+
+    await _db
+        .collection('users')
+        .doc(appUser.uid)
+        .set(appUser.toMap(), SetOptions(merge: true));
 
     // E-posta doğrulama (opsiyonel ama önerilir)
     if (!cred.user!.emailVerified) {
@@ -55,20 +69,39 @@ class AuthRepository {
       password: password,
     );
 
-    // Profil dokümanı varsa oku, yoksa oluştur
     final docRef = _db.collection('users').doc(cred.user!.uid);
     final snap = await docRef.get();
+
     if (!snap.exists) {
+      // Doküman yoksa, Firebase displayName'den isim/soyisim ayırıp minimal profil oluştur.
+      final dn = cred.user!.displayName ?? '';
+      final parts = dn.trim().split(RegExp(r'\s+'));
+      String? firstName;
+      String? lastName;
+      if (parts.isNotEmpty && parts.first.isNotEmpty) {
+        firstName = parts.first;
+        if (parts.length > 1) {
+          lastName = parts.sublist(1).join(' ').trim().isEmpty
+              ? null
+              : parts.sublist(1).join(' ').trim();
+        }
+      }
+
       final appUser = AppUser(
         uid: cred.user!.uid,
         email: cred.user!.email!,
-        displayName: cred.user!.displayName,
+        firstName: firstName,
+        lastName: lastName,
+        displayName: dn.isEmpty ? null : dn,
+        country: null,
+        city: null,
         createdAt: DateTime.now(),
         emailVerified: cred.user!.emailVerified,
       );
-      await docRef.set(appUser.toMap());
+      await docRef.set(appUser.toMap(), SetOptions(merge: true));
       return appUser;
     }
+
     return AppUser.fromMap(snap.data()!);
   }
 
@@ -85,3 +118,4 @@ class AuthRepository {
     return AppUser.fromMap(snap.data()!);
   }
 }
+
