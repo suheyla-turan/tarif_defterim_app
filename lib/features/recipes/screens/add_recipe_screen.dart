@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/recipes_provider.dart';
 import '../constants/recipe_types.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class AddRecipeScreen extends ConsumerStatefulWidget {
   const AddRecipeScreen({super.key});
@@ -18,9 +21,53 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
   final _countryCtrl = TextEditingController();
   final List<TextEditingController> _ingredientCtrls = [TextEditingController()];
   final List<TextEditingController> _stepCtrls = [TextEditingController()];
+  final List<File> _pickedImages = [];
+  bool _uploading = false;
 
   String _mainType = RecipeTypes.mainTypes.first;
   String? _subType;
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galeriden Seç'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+    final file = await picker.pickImage(source: source, imageQuality: 85, maxWidth: 1600);
+    if (file == null) return;
+    setState(() => _pickedImages.add(File(file.path)));
+  }
+
+  Future<List<String>> _uploadAllImages() async {
+    if (_pickedImages.isEmpty) return [];
+    final storage = FirebaseStorage.instance;
+    final List<String> urls = [];
+    for (final f in _pickedImages) {
+      final name = 'recipes/${DateTime.now().millisecondsSinceEpoch}_${f.path.split('/').last}';
+      final ref = storage.ref().child(name);
+      final task = await ref.putFile(f);
+      final url = await task.ref.getDownloadURL();
+      urls.add(url);
+    }
+    return urls;
+  }
 
   @override
   void dispose() {
@@ -65,6 +112,38 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              // Görsel seçimi
+              Row(
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final f in _pickedImages)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(f, width: 72, height: 72, fit: BoxFit.cover),
+                          ),
+                        InkWell(
+                          onTap: _uploading ? null : _pickImage,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Theme.of(context).dividerColor),
+                            ),
+                            child: const Icon(Icons.add_a_photo_outlined),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _titleCtrl,
                 decoration: const InputDecoration(labelText: 'Başlık'),
@@ -180,6 +259,19 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                     ? null
                     : () async {
                         if (!_formKey.currentState!.validate()) return;
+                      setState(() => _uploading = true);
+                      List<String> imageUrls = const [];
+                      try {
+                        imageUrls = await _uploadAllImages();
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Görseller yüklenemedi, tarif görselsiz kaydediliyor')),
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => _uploading = false);
+                      }
                         final ingredients = _ingredientCtrls
                             .map((c) => c.text.trim())
                             .where((e) => e.isNotEmpty)
@@ -196,10 +288,11 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                           country: _countryCtrl.text.isEmpty ? null : _countryCtrl.text,
                           ingredients: ingredients,
                           steps: steps,
+                        imageUrls: imageUrls,
                         );
                       },
                 icon: const Icon(Icons.save_outlined),
-                label: Text(addState.submitting ? 'Kaydediliyor...' : 'Kaydet'),
+                label: Text(addState.submitting || _uploading ? 'Kaydediliyor...' : 'Kaydet'),
               )
             ],
           ),

@@ -1,1 +1,24 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"tarif-defterim-55e7d","appId":"1:1085927404483:android:6606c69acb45b7090c0376","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"tarif-defterim-55e7d","configurations":{"android":"1:1085927404483:android:6606c69acb45b7090c0376"}}}}}}
+{
+  "firestore": {
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "tarif-defterim-55e7d",
+          "appId": "1:1085927404483:android:6606c69acb45b7090c0376",
+          "fileOutput": "android/app/google-services.json"
+        }
+      }
+    },
+    "dart": {
+      "lib/firebase_options.dart": {
+        "projectId": "tarif-defterim-55e7d",
+        "configurations": {
+          "android": "1:1085927404483:android:6606c69acb45b7090c0376"
+        }
+      }
+    }
+  }
+}

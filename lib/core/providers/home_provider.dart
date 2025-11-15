@@ -19,6 +19,5 @@ final recipesStreamProvider =
   return FirebaseFirestore.instance
       .collection('recipes')
       .where('ownerId', isEqualTo: uid)
-      .orderBy('createdAt', descending: true)
       .snapshots();
 });

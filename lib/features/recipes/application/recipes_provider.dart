@@ -2,7 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../auth/application/auth_controller.dart' as feature_auth;
+import '../../../core/providers/auth_provider.dart' as feature_auth;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../data/recipes_repository.dart';
 import '../models/recipe.dart';
 
@@ -27,16 +28,15 @@ class AddRecipeState {
 final addRecipeControllerProvider =
     StateNotifierProvider<AddRecipeController, AddRecipeState>((ref) {
   final repo = ref.watch(recipesRepositoryProvider);
-  final authState = ref.watch(feature_auth.authControllerProvider);
-  return AddRecipeController(repo: repo, ownerId: authState.user?.uid);
+  return AddRecipeController(ref: ref, repo: repo);
 });
 
 class AddRecipeController extends StateNotifier<AddRecipeState> {
   final RecipesRepository _repo;
-  final String? _ownerId;
-  AddRecipeController({required RecipesRepository repo, required String? ownerId})
+  final Ref _ref;
+  AddRecipeController({required Ref ref, required RecipesRepository repo})
       : _repo = repo,
-        _ownerId = ownerId,
+        _ref = ref,
         super(const AddRecipeState());
 
   Future<void> submit({
@@ -49,7 +49,9 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
     List<String> steps = const [],
     List<String> imageUrls = const [],
   }) async {
-    if (_ownerId == null) {
+    final User? fbUser = _ref.read(feature_auth.firebaseAuthStateProvider).value;
+    final ownerId = fbUser?.uid;
+    if (ownerId == null) {
       state = state.copyWith(error: 'Oturum bulunamadı.');
       return;
     }
@@ -68,7 +70,7 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
       final normalizedCountry = (country ?? '').trim();
       final recipe = Recipe(
         id: const Uuid().v4(), // Firestore id yine doc id olacak, local referans için
-        ownerId: _ownerId!,
+        ownerId: ownerId,
         title: title.trim(),
         description: description?.trim(),
         mainType: mainType,
@@ -95,7 +97,7 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
 
 /// Aktif kullanıcının tarifleri (liste)
 final myRecipesProvider = StreamProvider<List<Recipe>>((ref) {
-  final auth = ref.watch(feature_auth.authControllerProvider).user;
+  final auth = ref.watch(feature_auth.firebaseAuthStateProvider).value;
   final repo = ref.watch(recipesRepositoryProvider);
   if (auth == null) return const Stream<List<Recipe>>.empty();
   return repo.watchUserRecipes(auth.uid);
@@ -128,7 +130,7 @@ final recipesSearchFilteredProvider =
 });
 
 final favoritesProvider = StreamProvider<List<Recipe>>((ref) {
-  final auth = ref.watch(feature_auth.authControllerProvider).user;
+  final auth = ref.watch(feature_auth.firebaseAuthStateProvider).value;
   if (auth == null) return const Stream<List<Recipe>>.empty();
   final repo = ref.watch(recipesRepositoryProvider);
   return repo.watchUserFavorites(auth.uid);

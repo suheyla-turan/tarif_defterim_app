@@ -24,9 +24,12 @@ class RecipesRepository {
   Stream<List<Recipe>> watchUserRecipes(String ownerId) {
     return _col
         .where('ownerId', isEqualTo: ownerId)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((qs) => qs.docs.map((d) => Recipe.fromDoc(d)).toList());
+        .map((qs) {
+      final items = qs.docs.map((d) => Recipe.fromDoc(d)).toList();
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return items;
+    });
   }
 
   Future<Recipe> getById(String id) async {
@@ -64,9 +67,11 @@ class RecipesRepository {
       final kw = query.trim().toLowerCase();
       q = q.where('keywords', arrayContains: kw);
     }
-    return q.orderBy('createdAt', descending: true).snapshots().map(
-          (qs) => qs.docs.map((d) => Recipe.fromDoc(d)).toList(),
-        );
+    return q.snapshots().map((qs) {
+      final items = qs.docs.map((d) => Recipe.fromDoc(d)).toList();
+      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return items;
+    });
   }
 
   /// Beğeni arttır/azalt (transaction ile güvenli)
@@ -124,6 +129,14 @@ class RecipesRepository {
       all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return all;
     });
+  }
+
+  /// Tüm tarifleri getir (kategori filtresi olmadan)
+  Stream<List<Recipe>> watchAllRecipes() {
+    return _col
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((qs) => qs.docs.map((d) => Recipe.fromDoc(d)).toList());
   }
 }
 
