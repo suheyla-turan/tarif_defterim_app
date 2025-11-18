@@ -48,6 +48,7 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
     List<String> ingredients = const [],
     List<String> steps = const [],
     List<String> imageUrls = const [],
+    int? portions,
   }) async {
     final User? fbUser = _ref.read(feature_auth.firebaseAuthStateProvider).value;
     final ownerId = fbUser?.uid;
@@ -82,6 +83,7 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
         likesCount: 0,
         createdAt: DateTime.now(),
         keywords: keywords,
+        portions: portions,
       );
 
       // Firestore doc id server tarafından atanacak; id alanını yok sayacağız

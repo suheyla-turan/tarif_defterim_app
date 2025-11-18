@@ -34,6 +34,9 @@ class Recipe {
   /// Basit arama için indekslenen anahtar kelimeler (lowercase)
   final List<String> keywords;
 
+  /// Tarifin porsiyon sayısı (opsiyonel, varsayılan 1)
+  final int? portions;
+
   const Recipe({
     required this.id,
     required this.ownerId,
@@ -48,6 +51,7 @@ class Recipe {
     required this.likesCount,
     required this.createdAt,
     required this.keywords,
+    this.portions,
   });
 
   Recipe copyWith({
@@ -64,6 +68,7 @@ class Recipe {
     int? likesCount,
     DateTime? createdAt,
     List<String>? keywords,
+    int? portions,
   }) {
     return Recipe(
       id: id ?? this.id,
@@ -79,6 +84,7 @@ class Recipe {
       likesCount: likesCount ?? this.likesCount,
       createdAt: createdAt ?? this.createdAt,
       keywords: keywords ?? this.keywords,
+      portions: portions ?? this.portions,
     );
   }
 
@@ -96,6 +102,7 @@ class Recipe {
       'likesCount': likesCount,
       'createdAt': Timestamp.fromDate(createdAt),
       'keywords': keywords,
+      'portions': portions,
     };
   }
 
@@ -115,6 +122,38 @@ class Recipe {
       likesCount: (data['likesCount'] ?? 0) as int,
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       keywords: List<String>.from((data['keywords'] ?? const <String>[]) as List),
+      portions: data['portions'] as int?,
+    );
+  }
+
+  factory Recipe.fromMap(Map<String, dynamic> map, {String? id}) {
+    DateTime parseCreatedAt(dynamic value) {
+      if (value is Timestamp) {
+        return value.toDate();
+      } else if (value is DateTime) {
+        return value;
+      } else if (value is String) {
+        return DateTime.parse(value);
+      } else {
+        return DateTime.now();
+      }
+    }
+
+    return Recipe(
+      id: id ?? map['id'] as String? ?? '',
+      ownerId: map['ownerId'] as String,
+      title: (map['title'] as String).trim(),
+      description: map['description'] as String?,
+      mainType: map['mainType'] as String,
+      subType: map['subType'] as String?,
+      country: map['country'] as String?,
+      ingredients: List<String>.from((map['ingredients'] ?? const <String>[]) as List),
+      steps: List<String>.from((map['steps'] ?? const <String>[]) as List),
+      imageUrls: List<String>.from((map['imageUrls'] ?? const <String>[]) as List),
+      likesCount: (map['likesCount'] ?? 0) as int,
+      createdAt: parseCreatedAt(map['createdAt'] ?? DateTime.now()),
+      keywords: List<String>.from((map['keywords'] ?? const <String>[]) as List),
+      portions: map['portions'] as int?,
     );
   }
 

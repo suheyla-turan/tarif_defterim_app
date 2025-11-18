@@ -3,6 +3,8 @@
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'core/secrets.dart';
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
@@ -52,11 +54,14 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyByotYC1wtXyBq6i5CQTBFka20kDtubmc0',
-    appId: '1:1085927404483:android:6606c69acb45b7090c0376',
-    messagingSenderId: '1085927404483',
-    projectId: 'tarif-defterim-55e7d',
-    storageBucket: 'tarif-defterim-55e7d.firebasestorage.app',
-  );
+  static FirebaseOptions get android {
+    // Önce .env dosyasından oku, yoksa secrets.dart'tan oku, yoksa fallback değerleri kullan
+    return FirebaseOptions(
+      apiKey: dotenv.env['FIREBASE_API_KEY'] ?? Secrets.firebaseApiKey,
+      appId: dotenv.env['FIREBASE_APP_ID'] ?? Secrets.firebaseAppId,
+      messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? Secrets.firebaseMessagingSenderId,
+      projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? Secrets.firebaseProjectId,
+      storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? Secrets.firebaseStorageBucket,
+    );
+  }
 }

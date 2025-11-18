@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/shopping_entry.dart';
+import '../models/shopping_item.dart';
 
 class ShoppingRepository {
   final FirebaseFirestore _db;
@@ -23,29 +24,41 @@ class ShoppingRepository {
   }
 
   ShoppingEntry _mergeItems(ShoppingEntry a, ShoppingEntry b) {
-    final items = <String, Map<String, dynamic>>{};
+    final Map<String, ShoppingItem> merged = {};
+    
+    // İlk entry'deki item'ları ekle
     for (final it in a.items) {
-      items[it.name] = {'unit': it.unit, 'quantity': it.quantity};
+      merged[it.name] = it;
     }
+    
+    // İkinci entry'deki item'ları birleştir
     for (final it in b.items) {
-      final prev = items[it.name];
-      if (prev == null) {
-        items[it.name] = {'unit': it.unit, 'quantity': it.quantity};
+      final existing = merged[it.name];
+      if (existing == null) {
+        merged[it.name] = it;
       } else {
-        final q1 = (prev['quantity'] as double?) ?? 0;
+        // Miktarları topla
+        final q1 = existing.quantity ?? 0;
         final q2 = it.quantity ?? 0;
-        items[it.name] = {'unit': it.unit ?? prev['unit'], 'quantity': (q1 + q2) == 0 ? null : q1 + q2};
+        final totalQuantity = (q1 + q2) == 0 ? null : q1 + q2;
+        
+        // Birimleri birleştir (varsa)
+        final unit = it.unit ?? existing.unit;
+        
+        merged[it.name] = ShoppingItem(
+          name: it.name,
+          unit: unit,
+          quantity: totalQuantity,
+        );
       }
     }
+    
     return ShoppingEntry(
       id: a.id,
       ownerId: a.ownerId,
       recipeId: a.recipeId,
       recipeTitle: a.recipeTitle,
-      items: items.entries
-          .map((e) => {'name': e.key, ...e.value})
-          .map((m) => ShoppingEntry.parseIngredientForMerge('${m['quantity'] ?? ''} ${m['unit'] ?? ''} ${m['name']}'))
-          .toList(),
+      items: merged.values.toList(),
       createdAt: a.createdAt,
     );
   }

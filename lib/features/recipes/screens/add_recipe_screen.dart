@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../application/recipes_provider.dart';
+import '../../../core/providers/localization_provider.dart';
 import '../constants/recipe_types.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
@@ -19,6 +20,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
   final _titleCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   final _countryCtrl = TextEditingController();
+  final _portionCtrl = TextEditingController(text: '1');
   final List<TextEditingController> _ingredientCtrls = [TextEditingController()];
   final List<TextEditingController> _stepCtrls = [TextEditingController()];
   final List<File> _pickedImages = [];
@@ -26,6 +28,16 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
 
   String _mainType = RecipeTypes.mainTypes.first;
   String? _subType;
+  
+  @override
+  void initState() {
+    super.initState();
+    // İlk alt türü varsayılan olarak seç
+    final subTypes = RecipeTypes.subTypesOf(_mainType);
+    if (subTypes.isNotEmpty) {
+      _subType = subTypes.first;
+    }
+  }
 
   Future<void> _pickImage() async {
     final picker = ImagePicker();
@@ -37,12 +49,12 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Galeriden Seç'),
+              title: Text(AppLocalizations.of(context).fromGallery),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Kamera'),
+              title: Text(AppLocalizations.of(context).fromCamera),
               onTap: () => Navigator.pop(ctx, ImageSource.camera),
             ),
           ],
@@ -74,6 +86,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
     _titleCtrl.dispose();
     _descCtrl.dispose();
     _countryCtrl.dispose();
+    _portionCtrl.dispose();
     for (final c in _ingredientCtrls) c.dispose();
     for (final c in _stepCtrls) c.dispose();
     super.dispose();
@@ -83,12 +96,13 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
   Widget build(BuildContext context) {
     final addState = ref.watch(addRecipeControllerProvider);
     final addCtrl = ref.read(addRecipeControllerProvider.notifier);
+    final l10n = AppLocalizations.of(context);
 
     ref.listen(addRecipeControllerProvider, (prev, next) {
       if (prev?.submitting == true && next.submitting == false && next.error == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Tarif eklendi')),
+            SnackBar(content: Text(l10n.recipeAdded)),
           );
           Navigator.pop(context);
         }
@@ -104,7 +118,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Yeni Tarif'),
+        title: Text(l10n.addRecipe),
       ),
       body: SafeArea(
         child: Form(
@@ -146,44 +160,72 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: _titleCtrl,
-                decoration: const InputDecoration(labelText: 'Başlık'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Zorunlu' : null,
+                decoration: InputDecoration(labelText: l10n.title),
+                validator: (v) => (v == null || v.trim().isEmpty) ? l10n.required : null,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _mainType,
                 items: RecipeTypes.mainTypes
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .map((e) => DropdownMenuItem(
+                          value: e,
+                          child: Text(_getMainTypeDisplayName(e, l10n)),
+                        ))
                     .toList(),
-                decoration: const InputDecoration(labelText: 'Tür'),
+                decoration: InputDecoration(labelText: l10n.type),
+                validator: (v) => v == null ? l10n.required : null,
                 onChanged: (v) => setState(() {
                   _mainType = v!;
-                  _subType = null;
+                  // Yeni ana tür seçildiğinde ilk alt türü otomatik seç
+                  final newSubTypes = RecipeTypes.subTypesOf(_mainType);
+                  _subType = newSubTypes.isNotEmpty ? newSubTypes.first : null;
                 }),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _subType,
                 items: subTypes
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                    .map((e) => DropdownMenuItem(
+                          value: e,
+                          child: Text(_getSubTypeDisplayName(e, l10n)),
+                        ))
                     .toList(),
-                decoration: const InputDecoration(labelText: 'Alt tür (opsiyonel)'),
+                decoration: InputDecoration(labelText: l10n.subType),
+                validator: (v) => v == null ? l10n.required : null,
                 onChanged: (v) => setState(() => _subType = v),
               ),
               const SizedBox(height: 12),
               TextFormField(
+                controller: _portionCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: l10n.portionField,
+                  hintText: l10n.portionExample,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return l10n.required;
+                  }
+                  final portion = int.tryParse(v.trim());
+                  if (portion == null || portion < 1) {
+                    return l10n.validNumber;
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
                 controller: _countryCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Ülke (opsiyonel)'),
+                decoration: InputDecoration(labelText: '${l10n.country} (${l10n.optional})'),
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _descCtrl,
                 maxLines: 3,
-                decoration: const InputDecoration(labelText: 'Açıklama (opsiyonel)'),
+                decoration: InputDecoration(labelText: '${l10n.description} (${l10n.optional})'),
               ),
               const SizedBox(height: 16),
-              Text('Malzemeler', style: Theme.of(context).textTheme.titleMedium),
+              Text(l10n.ingredients, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               ..._ingredientCtrls.asMap().entries.map((entry) {
                 final i = entry.key;
@@ -195,7 +237,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                       Expanded(
                         child: TextFormField(
                           controller: c,
-                          decoration: InputDecoration(labelText: 'Malzeme #${i + 1}'),
+                          decoration: InputDecoration(labelText: '${l10n.ingredient} #${i + 1}'),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -214,11 +256,11 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                 child: TextButton.icon(
                   onPressed: () => setState(() => _ingredientCtrls.add(TextEditingController())),
                   icon: const Icon(Icons.add),
-                  label: const Text('Malzeme ekle'),
+                  label: Text(l10n.addIngredient),
                 ),
               ),
               const SizedBox(height: 12),
-              Text('Adımlar', style: Theme.of(context).textTheme.titleMedium),
+              Text(l10n.steps, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               ..._stepCtrls.asMap().entries.map((entry) {
                 final i = entry.key;
@@ -230,8 +272,8 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                       Expanded(
                         child: TextFormField(
                           controller: c,
-                          decoration: InputDecoration(labelText: 'Adım #${i + 1}'),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Zorunlu' : null,
+                          decoration: InputDecoration(labelText: '${l10n.step} #${i + 1}'),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? l10n.required : null,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -250,7 +292,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                 child: TextButton.icon(
                   onPressed: () => setState(() => _stepCtrls.add(TextEditingController())),
                   icon: const Icon(Icons.add),
-                  label: const Text('Adım ekle'),
+                  label: Text(l10n.addStep),
                 ),
               ),
               const SizedBox(height: 20),
@@ -266,7 +308,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                       } catch (e) {
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Görseller yüklenemedi, tarif görselsiz kaydediliyor')),
+                            SnackBar(content: Text(l10n.imagesUploadFailed)),
                           );
                         }
                       } finally {
@@ -280,6 +322,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                             .map((c) => c.text.trim())
                             .where((e) => e.isNotEmpty)
                             .toList();
+                        final portions = int.tryParse(_portionCtrl.text.trim());
                         await addCtrl.submit(
                           title: _titleCtrl.text,
                           description: _descCtrl.text.isEmpty ? null : _descCtrl.text,
@@ -288,17 +331,62 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                           country: _countryCtrl.text.isEmpty ? null : _countryCtrl.text,
                           ingredients: ingredients,
                           steps: steps,
-                        imageUrls: imageUrls,
+                          imageUrls: imageUrls,
+                          portions: portions,
                         );
                       },
                 icon: const Icon(Icons.save_outlined),
-                label: Text(addState.submitting || _uploading ? 'Kaydediliyor...' : 'Kaydet'),
+                label: Text(addState.submitting || _uploading ? l10n.loading : l10n.save),
               )
             ],
           ),
         ),
       ),
     );
+  }
+
+  String _getMainTypeDisplayName(String mainType, AppLocalizations l10n) {
+    switch (mainType) {
+      case 'yemek':
+        return l10n.meals;
+      case 'tatli':
+        return l10n.desserts;
+      case 'icecek':
+        return l10n.drinks;
+      default:
+        return mainType;
+    }
+  }
+
+  String _getSubTypeDisplayName(String subType, AppLocalizations l10n) {
+    switch (subType) {
+      case 'corba':
+        return l10n.soup;
+      case 'ana_yemek':
+        return l10n.mainDish;
+      case 'meze':
+        return l10n.appetizer;
+      case 'salata':
+        return l10n.salad;
+      case 'hamur_isi':
+        return l10n.pastry;
+      case 'sutlu':
+        return l10n.milky;
+      case 'serbetli':
+        return l10n.syrupy;
+      case 'kek_pasta':
+        return l10n.cake;
+      case 'kurabiye':
+        return l10n.cookie;
+      case 'sicak':
+        return l10n.hot;
+      case 'soguk':
+        return l10n.cold;
+      case 'smoothie':
+        return l10n.smoothie;
+      default:
+        return subType;
+    }
   }
 }
 

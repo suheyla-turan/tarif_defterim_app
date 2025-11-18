@@ -37,6 +37,16 @@ class RecipesRepository {
     return Recipe.fromDoc(snap);
   }
 
+  /// Tarifi ID ile stream olarak izle (beğeni sayısı güncellemeleri için)
+  Stream<Recipe> watchRecipeById(String id) {
+    return _col.doc(id).snapshots().map((snap) {
+      if (!snap.exists) {
+        throw Exception('Recipe not found');
+      }
+      return Recipe.fromDoc(snap);
+    });
+  }
+
   /// Basit arama: keywords arrayContains query
   Stream<List<Recipe>> search(String query) {
     final q = query.trim().toLowerCase();
@@ -53,17 +63,27 @@ class RecipesRepository {
     String? subType,
     String? country,
   }) {
+    // Eğer query boş ve hiçbir filtre yoksa, boş stream döndür
+    final hasQuery = query != null && query.trim().isNotEmpty;
+    final hasMainType = mainType != null && mainType.isNotEmpty;
+    final hasSubType = subType != null && subType.isNotEmpty;
+    final hasCountry = country != null && country.isNotEmpty;
+    
+    if (!hasQuery && !hasMainType && !hasSubType && !hasCountry) {
+      return const Stream<List<Recipe>>.empty();
+    }
+    
     Query<Map<String, dynamic>> q = _col;
-    if (mainType != null && mainType.isNotEmpty) {
+    if (hasMainType) {
       q = q.where('mainType', isEqualTo: mainType);
     }
-    if (subType != null && subType.isNotEmpty) {
+    if (hasSubType) {
       q = q.where('subType', isEqualTo: subType);
     }
-    if (country != null && country.isNotEmpty) {
+    if (hasCountry) {
       q = q.where('country', isEqualTo: country);
     }
-    if (query != null && query.trim().isNotEmpty) {
+    if (hasQuery) {
       final kw = query.trim().toLowerCase();
       q = q.where('keywords', arrayContains: kw);
     }

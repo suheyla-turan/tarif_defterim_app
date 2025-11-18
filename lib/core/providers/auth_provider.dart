@@ -34,7 +34,39 @@ final authControllerProvider =
 
 class AuthController extends StateNotifier<AuthState> {
   final AuthRepository _repo;
-  AuthController(this._repo) : super(const AuthState());
+  bool _initialized = false;
+  
+  AuthController(this._repo) : super(const AuthState()) {
+    // Uygulama açıldığında mevcut kullanıcının profilini yükle
+    _init();
+  }
+
+  Future<void> _init() async {
+    if (_initialized) return;
+    _initialized = true;
+    
+    state = state.copyWith(loading: true);
+    try {
+      final profile = await _repo.currentUserProfile();
+      state = AuthState(loading: false, user: profile);
+    } catch (e) {
+      // Ağ hatası olsa bile devam et, sadece profil yokmuş gibi davran
+      state = AuthState(loading: false, user: null);
+    }
+  }
+  
+  // Firebase Auth durumu değiştiğinde çağrılır
+  Future<void> checkAuthState() async {
+    state = state.copyWith(loading: true);
+    try {
+      final profile = await _repo.currentUserProfile();
+      // Profil yoksa state'i temizle
+      state = AuthState(loading: false, user: profile);
+    } catch (e) {
+      // Ağ hatası olsa bile devam et
+      state = AuthState(loading: false, user: null);
+    }
+  }
 
   Future<void> register({
     required String email,
@@ -53,8 +85,10 @@ class AuthController extends StateNotifier<AuthState> {
       state = AuthState(loading: false, user: u);
     } on FirebaseAuthException catch (e) {
       state = state.copyWith(loading: false, error: _mapAuthCode(e.code));
-    } catch (_) {
-      state = state.copyWith(loading: false, error: 'Bir hata oluştu.');
+    } catch (e) {
+      // Ağ hatalarını yakala
+      final errorMsg = _mapNetworkError(e);
+      state = state.copyWith(loading: false, error: errorMsg);
     }
   }
 
@@ -65,8 +99,10 @@ class AuthController extends StateNotifier<AuthState> {
       state = AuthState(loading: false, user: u);
     } on FirebaseAuthException catch (e) {
       state = state.copyWith(loading: false, error: _mapAuthCode(e.code));
-    } catch (_) {
-      state = state.copyWith(loading: false, error: 'Bir hata oluştu.');
+    } catch (e) {
+      // Ağ hatalarını yakala
+      final errorMsg = _mapNetworkError(e);
+      state = state.copyWith(loading: false, error: errorMsg);
     }
   }
 
@@ -97,8 +133,31 @@ class AuthController extends StateNotifier<AuthState> {
         return 'Şifre hatalı.';
       case 'too-many-requests':
         return 'Çok fazla deneme. Biraz bekleyin.';
+      case 'network-request-failed':
+        return 'İnternet bağlantınızı kontrol edin.';
+      case 'operation-not-allowed':
+        return 'Bu işlem şu anda izin verilmiyor.';
       default:
         return 'Hata: $code';
     }
+  }
+
+  String _mapNetworkError(dynamic error) {
+    final errorString = error.toString().toLowerCase();
+    
+    if (errorString.contains('network') || 
+        errorString.contains('timeout') ||
+        errorString.contains('unreachable') ||
+        errorString.contains('connection') ||
+        errorString.contains('host') ||
+        errorString.contains('internet')) {
+      return 'İnternet bağlantınızı kontrol edin ve tekrar deneyin.';
+    }
+    
+    if (errorString.contains('firebase')) {
+      return 'Firebase bağlantı hatası. Lütfen tekrar deneyin.';
+    }
+    
+    return 'Bir hata oluştu. Lütfen tekrar deneyin.';
   }
 }

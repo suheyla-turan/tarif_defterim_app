@@ -35,11 +35,27 @@ class ShoppingEntry {
         createdAt: DateTime.parse(map['createdAt'] as String),
       );
 
-  static ShoppingEntry fromRecipe({required String? ownerId, required Recipe recipe}) {
-    final normalized = _normalizeIngredients(recipe.ingredients);
+  static Future<ShoppingEntry> fromRecipe({
+    required String? ownerId, 
+    required Recipe recipe,
+    Future<List<ShoppingItem>> Function(List<String>)? aiNormalize,
+  }) async {
+    List<ShoppingItem> normalized;
+    if (aiNormalize != null) {
+      try {
+        normalized = await aiNormalize(recipe.ingredients);
+      } catch (e) {
+        // AI başarısız olursa fallback kullan
+        normalized = _normalizeIngredients(recipe.ingredients);
+      }
+    } else {
+      normalized = _normalizeIngredients(recipe.ingredients);
+    }
+    
+    final finalOwnerId = ownerId ?? '';
     return ShoppingEntry(
-      id: recipe.id,
-      ownerId: ownerId ?? '',
+      id: finalOwnerId.isNotEmpty ? '${finalOwnerId}_${recipe.id}' : recipe.id,
+      ownerId: finalOwnerId,
       recipeId: recipe.id,
       recipeTitle: recipe.title,
       items: normalized,

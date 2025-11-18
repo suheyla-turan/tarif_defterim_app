@@ -2,6 +2,16 @@
 
 A new Flutter project.
 
+## 🔒 API Anahtarları Kurulumu
+
+Bu proje Firebase ve OpenAI API anahtarlarını kullanır. API anahtarlarınızı güvenli bir şekilde saklamak için:
+
+1. `lib/core/secrets.example.dart` dosyasını `lib/core/secrets.dart` olarak kopyalayın
+2. `lib/core/secrets.dart` dosyasına gerçek API anahtarlarınızı yazın
+3. `secrets.dart` dosyası `.gitignore`'da olduğu için GitHub'a yüklenmez
+
+**Not:** Alternatif olarak `.env` dosyası da kullanılabilir. `.env` dosyası da `.gitignore`'da olduğu için GitHub'a yüklenmez.
+
 ## Getting Started
 
 This project is a starting point for a Flutter application.

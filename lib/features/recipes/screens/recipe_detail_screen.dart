@@ -5,6 +5,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../application/recipes_provider.dart';
 import '../../../core/providers/auth_provider.dart' as feature_auth;
+import '../../../core/providers/localization_provider.dart';
 import '../models/recipe.dart';
 import '../../shopping/application/shopping_provider.dart';
 import '../../ai/application/ai_recipe_service.dart' as ai;
@@ -23,73 +24,190 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
   int _currentStepIndex = 0;
   bool _isSpeaking = false;
   bool _sttAvailable = false;
+  bool _isReadingAllSteps = false; // Tüm adımları okuma modunda mıyız?
+  bool _isPaused = false; // Duraklatıldı mı?
+  bool _isContinuousListeningEnabled = false; // Sürekli dinleme modu aktif mi?
+
+  bool _ttsInitialized = false;
+  bool _sttInitialized = false;
 
   @override
   void initState() {
     super.initState();
-    _setupTts();
-    _setupStt();
+    // TTS ve STT'yi lazy olarak başlat - main thread'i bloklamamak için
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupTts();
+      _setupStt();
+    });
   }
 
   Future<void> _setupTts() async {
+    if (_ttsInitialized) return;
+    _ttsInitialized = true;
+    
     try {
-      // Android'de Google TTS motorunu tercih et (mevcutsa)
-      await _tts.setEngine('com.google.android.tts');
+      // TTS servisinin hazır olmasını bekle
+      await Future.delayed(const Duration(milliseconds: 500));
 
-      // Konuşma tamamlanmasını bekleme davranışını aç
-      await _tts.awaitSpeakCompletion(true);
-
-      // Dil uygun mu kontrol et; değilse güvenli bir zemine düş
-      final isTrAvailable = await _tts.isLanguageAvailable('tr-TR') == true;
-      await _tts.setLanguage(isTrAvailable ? 'tr-TR' : 'en-US');
-
-      await _tts.setSpeechRate(0.5);
-      await _tts.setPitch(1.0);
-
-      // Bazı cihazlarda başlangıçta null ses dönebiliyor; ses listesinden TR seçmeyi dene
-      final voices = await _tts.getVoices;
-      if (voices is List) {
-        final trVoice = voices.cast<Map>().cast<Map<dynamic, dynamic>>().firstWhere(
-          (v) => (v['locale']?.toString().toLowerCase() == 'tr-tr'),
-          orElse: () => const {},
-        );
-        if (trVoice.isNotEmpty) {
-          await _tts.setVoice({
-            'name': trVoice['name'],
-            'locale': trVoice['locale'],
-          });
-        }
+      // Android'de Google TTS motorunu tercih et (mevcutsa) - opsiyonel
+      try {
+        await _tts.setEngine('com.google.android.tts')
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // Engine ayarı başarısız olursa varsayılan engine'i kullan
       }
 
-      _tts.setCompletionHandler(() {
-        if (mounted) {
-          setState(() => _isSpeaking = false);
+      // Konuşma tamamlanmasını bekleme davranışını aç
+      try {
+        await _tts.awaitSpeakCompletion(true);
+      } catch (_) {
+        // Bu ayar başarısız olursa devam et
+      }
+
+      // Dil uygun mu kontrol et; değilse güvenli bir zemine düş
+      String selectedLanguage = 'en-US'; // Varsayılan dil
+      try {
+        final languageCheck = await _tts.isLanguageAvailable('tr-TR')
+            .timeout(const Duration(seconds: 2));
+        if (languageCheck == true) {
+          selectedLanguage = 'tr-TR';
         }
-      });
+      } catch (_) {
+        // Dil kontrolü başarısız olursa varsayılan dili kullan
+      }
+
+      // Dil ayarını yap
+      try {
+        await _tts.setLanguage(selectedLanguage);
+      } catch (_) {
+        // Dil ayarı başarısız olursa devam et
+      }
+
+      // Konuşma hızı ve perde ayarları
+      try {
+        await _tts.setSpeechRate(0.5);
+        await _tts.setPitch(1.0);
+      } catch (_) {
+        // Bu ayarlar başarısız olursa devam et
+      }
+
+      // Ses listesinden TR ses seçmeyi dene
+      try {
+        final voices = await _tts.getVoices
+            .timeout(const Duration(seconds: 2));
+        if (voices is List && voices.isNotEmpty) {
+          final trVoice = voices.cast<Map>().cast<Map<dynamic, dynamic>>().firstWhere(
+            (v) => (v['locale']?.toString().toLowerCase() == 'tr-tr'),
+            orElse: () => const {},
+          );
+          if (trVoice.isNotEmpty) {
+            await _tts.setVoice({
+              'name': trVoice['name'],
+              'locale': trVoice['locale'],
+            });
+          }
+        }
+      } catch (_) {
+        // Ses seçimi başarısız olursa devam et
+      }
+
+      // Completion handler ayarla
+      try {
+        _tts.setCompletionHandler(() {
+          if (mounted) {
+            setState(() => _isSpeaking = false);
+            // Eğer tüm adımları okuyorsak ve duraklatılmadıysa bir sonraki adıma geç
+            if (_isReadingAllSteps && !_isPaused) {
+              _continueToNextStep();
+            }
+          }
+        });
+      } catch (_) {
+        // Handler ayarı başarısız olursa devam et
+      }
     } catch (_) {
       // Init sırasında hata olursa (ör. emülatörde TTS motoru yok), sessizce geç
+      // Uygulama çalışmaya devam edecek, sadece TTS özelliği çalışmayabilir
     }
   }
 
   Future<void> _setupStt() async {
-    _sttAvailable = await _stt.initialize();
-    setState(() {});
+    if (_sttInitialized) return;
+    _sttInitialized = true;
+    
+    try {
+      _sttAvailable = await _stt.initialize();
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {
+      // STT başlatma başarısız olursa sessizce geç
+      _sttAvailable = false;
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _speakCurrent() async {
-    if (_currentStepIndex < 0 || _currentStepIndex >= widget.recipe.steps.length) return;
-    setState(() => _isSpeaking = true);
-    await _tts.speak('Adım ${_currentStepIndex + 1}. ${widget.recipe.steps[_currentStepIndex]}');
+    if (_currentStepIndex < 0 || _currentStepIndex >= widget.recipe.steps.length) {
+      // Tüm adımlar bitti
+      if (_isReadingAllSteps) {
+        _isReadingAllSteps = false;
+        _isPaused = false;
+        if (mounted) {
+          setState(() {});
+        }
+      }
+      return;
+    }
+    if (!_ttsInitialized) {
+      await _setupTts();
+    }
+    if (mounted) {
+      setState(() => _isSpeaking = true);
+    }
+    try {
+      await _tts.speak('Adım ${_currentStepIndex + 1}. ${widget.recipe.steps[_currentStepIndex]}');
+    } catch (_) {
+      // Konuşma başarısız olursa sessizce geç
+      if (mounted) {
+        setState(() => _isSpeaking = false);
+        // Hata olursa da bir sonraki adıma geçmeyi dene
+        if (_isReadingAllSteps && !_isPaused) {
+          _continueToNextStep();
+        }
+      }
+    }
+  }
+
+  void _continueToNextStep() {
+    if (_currentStepIndex < widget.recipe.steps.length - 1) {
+      setState(() => _currentStepIndex++);
+      _speakCurrent();
+    } else {
+      // Tüm adımlar bitti
+      _isReadingAllSteps = false;
+      _isPaused = false;
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _stop() async {
-    await _tts.stop();
-    setState(() => _isSpeaking = false);
-  }
-
-  Future<void> _pause() async {
-    await _tts.pause();
-    setState(() => _isSpeaking = false);
+    try {
+      await _tts.stop();
+    } catch (_) {
+      // Durdurma başarısız olursa sessizce geç
+    }
+    if (mounted) {
+      setState(() {
+        _isSpeaking = false;
+        _isReadingAllSteps = false;
+        _isPaused = false;
+      });
+    }
   }
 
   void _nextStep() {
@@ -106,38 +224,144 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     }
   }
 
-  void _startListening() async {
+  void _startContinuousListening() async {
     if (!_sttAvailable) return;
-    await _stt.listen(
-      localeId: 'tr_TR',
-      onResult: (res) {
-        final text = res.recognizedWords.toLowerCase();
-        if (text.contains('başlat') || text.contains('oku')) {
-          _speakCurrent();
-        } else if (text.contains('durdur') || text.contains('bitir')) {
-          _stop();
-        } else if (text.contains('devam')) {
-          _speakCurrent();
-        } else if (text.contains('sonraki') || text.contains('ileri')) {
-          _nextStep();
-        } else if (text.contains('önceki') || text.contains('geri')) {
-          _prevStep();
+    
+    // Eğer zaten dinliyorsa, tekrar başlatma
+    if (_stt.isListening) return;
+    
+    _isContinuousListeningEnabled = true;
+    
+    try {
+      await _stt.listen(
+        localeId: 'tr_TR',
+        listenFor: const Duration(minutes: 10), // Uzun süre dinle
+        pauseFor: const Duration(seconds: 3),
+        onResult: (res) {
+          final text = res.recognizedWords.toLowerCase().trim();
+          
+          // "çırak" komutunu algıla - tüm adımları okumaya başla
+          if (text.contains('çırak') && !text.contains('dur') && !text.contains('devam')) {
+            if (!_isReadingAllSteps && !_isSpeaking) {
+              _startReadingAllSteps();
+            }
+          }
+          // "çırak dur" komutunu algıla
+          else if (text.contains('çırak') && text.contains('dur')) {
+            _pauseReading();
+          }
+          // "çırak devam et" komutunu algıla
+          else if (text.contains('çırak') && (text.contains('devam') || text.contains('devam et'))) {
+            _resumeReading();
+          }
+          // Eski komutlar (geriye dönük uyumluluk için)
+          else if (text.contains('başlat') || text.contains('oku') || text.contains('başla')) {
+            if (!_isReadingAllSteps && !_isSpeaking) {
+              _startReadingAllSteps();
+            }
+          } else if (text.contains('durdur') || text.contains('bitir')) {
+            _pauseReading();
+          } else if (text.contains('devam') && !text.contains('çırak')) {
+            _resumeReading();
+          } else if (text.contains('sonraki') || text.contains('ileri')) {
+            if (!_isReadingAllSteps) {
+              _nextStep();
+            }
+          } else if (text.contains('önceki') || text.contains('geri')) {
+            if (!_isReadingAllSteps) {
+              _prevStep();
+            }
+          }
+        },
+        onSoundLevelChange: (_) {
+          // Ses seviyesi değişikliklerini dinle (opsiyonel)
+        },
+      );
+      
+      // Dinleme süresi dolduğunda otomatik olarak yeniden başlat
+      Future.delayed(const Duration(minutes: 10), () {
+        if (mounted && _isContinuousListeningEnabled && !_stt.isListening) {
+          _startContinuousListening();
         }
-      },
-    );
+      });
+      
+      // Periyodik olarak dinleme durumunu kontrol et ve gerekirse yeniden başlat
+      _monitorListeningStatus();
+    } catch (e) {
+      // Hata olursa tekrar dene
+      if (mounted && _isContinuousListeningEnabled) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && _isContinuousListeningEnabled) {
+            _startContinuousListening();
+          }
+        });
+      }
+    }
+  }
+  
+  void _monitorListeningStatus() {
+    // Her 2 saniyede bir dinleme durumunu kontrol et
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _isContinuousListeningEnabled) {
+        if (!_stt.isListening && _sttAvailable) {
+          // Dinleme durmuş, yeniden başlat
+          _startContinuousListening();
+        } else {
+          // Hala dinliyorsa tekrar kontrol et
+          _monitorListeningStatus();
+        }
+      }
+    });
+  }
+
+  void _startReadingAllSteps() {
+    if (_isReadingAllSteps) return;
+    
+    _isReadingAllSteps = true;
+    _isPaused = false;
+    _currentStepIndex = 0; // Baştan başla
+    if (mounted) {
+      setState(() {});
+    }
+    _speakCurrent();
+  }
+
+  void _pauseReading() {
+    _isPaused = true;
+    _stop();
+  }
+
+  void _resumeReading() {
+    if (!_isReadingAllSteps) {
+      // Eğer hiç başlamadıysa başlat
+      _startReadingAllSteps();
+    } else if (_isPaused) {
+      // Duraklatılmışsa devam et
+      _isPaused = false;
+      if (mounted) {
+        setState(() {});
+      }
+      _speakCurrent();
+    }
   }
 
   void _stopListening() async {
     if (!_sttAvailable) return;
+    _isContinuousListeningEnabled = false;
     await _stt.stop();
   }
 
   @override
   void dispose() {
+    _isContinuousListeningEnabled = false;
     _stop();
     _stopListening();
     // Bazı cihazlarda sızıntıyı önlemek için konuşmayı bekleme kapatılabilir
-    _tts.awaitSpeakCompletion(false);
+    try {
+      _tts.awaitSpeakCompletion(false);
+    } catch (_) {
+      // Hata olursa sessizce geç
+    }
     super.dispose();
   }
 
@@ -145,138 +369,173 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
   Widget build(BuildContext context) {
     final repo = ref.watch(recipesRepositoryProvider);
     final user = ref.watch(feature_auth.authControllerProvider).user;
+    final l10n = AppLocalizations.of(context);
     final likedStream = (user == null)
         ? const Stream<bool>.empty()
         : repo.watchUserLiked(recipeId: widget.recipe.id, userId: user.uid);
+    final recipeStream = repo.watchRecipeById(widget.recipe.id);
     final shoppingCtrl = ref.read(shoppingControllerProvider.notifier);
 
-    return StreamBuilder<bool>(
-      stream: likedStream,
-      builder: (context, snap) {
-        final liked = snap.data == true;
-        return Scaffold(
+    return StreamBuilder<Recipe>(
+      stream: recipeStream,
+      builder: (context, recipeSnap) {
+        final currentRecipe = recipeSnap.data ?? widget.recipe;
+        return StreamBuilder<bool>(
+          stream: likedStream,
+          builder: (context, likedSnap) {
+            final liked = likedSnap.data == true;
+            return Scaffold(
           appBar: AppBar(
-            title: Text(widget.recipe.title),
+            title: Text(currentRecipe.title),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
             actions: [
               IconButton(
-                tooltip: 'Alışverişe ekle',
+                tooltip: l10n.addToShoppingList,
                 icon: const Icon(Icons.add_shopping_cart_outlined),
                 onPressed: () async {
-                  await shoppingCtrl.addRecipeToList(widget.recipe);
-                  if (mounted) {
+                  await shoppingCtrl.addRecipeToList(currentRecipe);
+                  if (!mounted) return;
+                  
+                  // State'i kontrol et
+                  final state = ref.read(shoppingControllerProvider);
+                  if (state.hasError) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Alışveriş listesine eklendi')),
+                      SnackBar(
+                        content: Text('Hata: ${state.error}'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(l10n.addedToShoppingList)),
                     );
                   }
                 },
               ),
               IconButton(
-                tooltip: liked ? 'Beğenmekten vazgeç' : 'Beğen',
+                tooltip: liked ? l10n.unlike : l10n.like,
                 icon: Icon(liked ? Icons.favorite : Icons.favorite_border),
                 onPressed: user == null
                     ? null
                     : () async {
                         await repo.setUserLike(
-                          recipeId: widget.recipe.id,
+                          recipeId: currentRecipe.id,
                           userId: user.uid,
                           like: !liked,
                         );
                       },
-              )
+              ),
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert),
+                onSelected: (value) async {
+                  if (value == 'vegan') {
+                    final service = ref.read(ai.aiRecipeServiceProvider);
+                    final transformed = await service.transformRecipe(
+                      base: currentRecipe,
+                      type: ai.RecipeTransformType.vegan,
+                    );
+                    if (!mounted) return;
+                    _showTransformedSheet(context, transformed);
+                  } else if (value == 'diet') {
+                    final service = ref.read(ai.aiRecipeServiceProvider);
+                    final transformed = await service.transformRecipe(
+                      base: currentRecipe,
+                      type: ai.RecipeTransformType.diet,
+                    );
+                    if (!mounted) return;
+                    _showTransformedSheet(context, transformed);
+                  } else if (value == 'portion') {
+                    final portions = await _askPortion(context);
+                    if (portions == null) return;
+                    final service = ref.read(ai.aiRecipeServiceProvider);
+                    final transformed = await service.transformRecipe(
+                      base: currentRecipe,
+                      type: ai.RecipeTransformType.portion,
+                      targetPortions: portions,
+                    );
+                    if (!mounted) return;
+                    _showTransformedSheet(context, transformed);
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'vegan',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.eco_outlined),
+                        const SizedBox(width: 8),
+                        Text(l10n.vegan),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'diet',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.local_fire_department_outlined),
+                        const SizedBox(width: 8),
+                        Text(l10n.diet),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'portion',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.reduce_capacity_outlined),
+                        const SizedBox(width: 8),
+                        Text(l10n.portion),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-          floatingActionButton: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              FloatingActionButton.extended(
-                heroTag: 'ai-vegan',
-                onPressed: () async {
-                  final service = ref.read(ai.aiRecipeServiceProvider);
-                  final transformed = await service.transformRecipe(
-                    base: widget.recipe,
-                    type: ai.RecipeTransformType.vegan,
-                  );
-                  if (!mounted) return;
-                  _showTransformedSheet(context, transformed);
-                },
-                icon: const Icon(Icons.eco_outlined),
-                label: const Text('Vegan'),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.extended(
-                heroTag: 'ai-diet',
-                onPressed: () async {
-                  final service = ref.read(ai.aiRecipeServiceProvider);
-                  final transformed = await service.transformRecipe(
-                    base: widget.recipe,
-                    type: ai.RecipeTransformType.diet,
-                  );
-                  if (!mounted) return;
-                  _showTransformedSheet(context, transformed);
-                },
-                icon: const Icon(Icons.local_fire_department_outlined),
-                label: const Text('Diyet'),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.extended(
-                heroTag: 'ai-portion',
-                onPressed: () async {
-                  final portions = await _askPortion(context);
-                  if (portions == null) return;
-                  final service = ref.read(ai.aiRecipeServiceProvider);
-                  final transformed = await service.transformRecipe(
-                    base: widget.recipe,
-                    type: ai.RecipeTransformType.portion,
-                    targetPortions: portions,
-                  );
-                  if (!mounted) return;
-                  _showTransformedSheet(context, transformed);
-                },
-                icon: const Icon(Icons.reduce_capacity_outlined),
-                label: const Text('Porsiyon'),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.extended(
-                heroTag: 'tts',
-                onPressed: _isSpeaking ? _pause : _speakCurrent,
-                icon: Icon(_isSpeaking ? Icons.pause : Icons.play_arrow),
-                label: Text(_isSpeaking ? 'Durdur' : 'Oku'),
-              ),
-              const SizedBox(height: 8),
-              FloatingActionButton.extended(
-                heroTag: 'stt',
-                onPressed: _stt.isListening ? _stopListening : _startListening,
-                icon: Icon(_stt.isListening ? Icons.mic_off : Icons.mic),
-                label: Text(_stt.isListening ? 'Komut: Kapalı' : 'Komut: Aç'),
-              ),
-            ],
-          ),
+          floatingActionButton: _sttAvailable
+              ? FloatingActionButton.extended(
+                  heroTag: 'cirak',
+                  onPressed: () {
+                    final l10n = AppLocalizations.of(context);
+                    if (!_isContinuousListeningEnabled || !_stt.isListening) {
+                      // Dinleme modunu başlat
+                      _startContinuousListening();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(l10n.isTurkish 
+                              ? 'Sesli komut aktif. "Çırak" diyerek başlatabilir, "Çırak dur" diyerek durdurabilirsiniz.' 
+                              : 'Voice command active. Say "Assistant" to start, "Assistant stop" to pause.'),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                    // Butona tekrar basılsa bile dinlemeyi durdurma, sürekli dinleme modunda kal
+                  },
+                  icon: Icon(_stt.isListening 
+                      ? (_isReadingAllSteps ? Icons.volume_up : Icons.mic) 
+                      : Icons.mic_none),
+                  label: Text(_stt.isListening 
+                      ? (_isReadingAllSteps 
+                          ? (AppLocalizations.of(context).isTurkish ? 'Okuyor...' : 'Reading...')
+                          : AppLocalizations.of(context).cirakListening) 
+                      : AppLocalizations.of(context).cirak),
+                )
+              : null,
           body: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(label: Text('Tür: ${widget.recipe.mainType}')),
-                  if (widget.recipe.subType != null)
-                    Chip(label: Text('Alt tür: ${widget.recipe.subType}')),
-                  if (widget.recipe.country != null)
-                    Chip(label: Text('Ülke: ${widget.recipe.country}')),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(widget.recipe.description ?? ''),
-              const SizedBox(height: 16),
-              if (widget.recipe.imageUrls.isNotEmpty) ...[
+              if (currentRecipe.imageUrls.isNotEmpty) ...[
                 SizedBox(
                   height: 200,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: widget.recipe.imageUrls.length,
+                    itemCount: currentRecipe.imageUrls.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (context, index) {
-                      final url = widget.recipe.imageUrls[index];
+                      final url = currentRecipe.imageUrls[index];
                       return InkWell(
                         onTap: () => _openImageViewer(url),
                         child: ClipRRect(
@@ -300,9 +559,36 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                 ),
                 const SizedBox(height: 16),
               ],
-              Text('Beğeni: ${widget.recipe.likesCount}', style: Theme.of(context).textTheme.titleMedium),
+              Row(
+                children: [
+                  Text('${AppLocalizations.of(context).type}: ', style: Theme.of(context).textTheme.titleMedium),
+                  Text(currentRecipe.mainType, style: Theme.of(context).textTheme.bodyLarge),
+                ],
+              ),
+              if (currentRecipe.subType != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text('${AppLocalizations.of(context).subType}: ', style: Theme.of(context).textTheme.titleMedium),
+                    Text(currentRecipe.subType!, style: Theme.of(context).textTheme.bodyLarge),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text('${AppLocalizations.of(context).likes}: ', style: Theme.of(context).textTheme.titleMedium),
+                  Text('${currentRecipe.likesCount}', style: Theme.of(context).textTheme.bodyLarge),
+                ],
+              ),
+              if (currentRecipe.description != null && currentRecipe.description!.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Text(AppLocalizations.of(context).description, style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Text(currentRecipe.description!, style: Theme.of(context).textTheme.bodyMedium),
+              ],
               const SizedBox(height: 16),
-              Text('Malzemeler', style: Theme.of(context).textTheme.titleLarge),
+              Text(AppLocalizations.of(context).ingredients, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
               ...widget.recipe.ingredients.map((e) => ListTile(
                     dense: true,
@@ -313,8 +599,8 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Adımlar', style: Theme.of(context).textTheme.titleLarge),
-                  Text('Adım ${_currentStepIndex + 1}/${widget.recipe.steps.length}')
+                  Text(AppLocalizations.of(context).steps, style: Theme.of(context).textTheme.titleLarge),
+                  Text('${AppLocalizations.of(context).step} ${_currentStepIndex + 1}/${widget.recipe.steps.length}')
                 ],
               ),
               const SizedBox(height: 8),
@@ -334,34 +620,37 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   ),
                 );
               }),
-              const SizedBox(height: 72),
+              const SizedBox(height: 100),
             ],
           ),
+            );
+          },
         );
       },
     );
   }
 
   Future<int?> _askPortion(BuildContext context) async {
+    final l10n = AppLocalizations.of(context);
     final controller = TextEditingController(text: '2');
     final res = await showDialog<int>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('Porsiyon sayısı'),
+          title: Text(l10n.portionCount),
           content: TextField(
             controller: controller,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(hintText: 'Örn: 2'),
+            decoration: InputDecoration(hintText: l10n.portionExample),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('İptal')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.cancel)),
             FilledButton(
               onPressed: () {
                 final val = int.tryParse(controller.text.trim());
                 Navigator.pop(ctx, val);
               },
-              child: const Text('Uygula'),
+              child: Text(l10n.apply),
             ),
           ],
         );
@@ -385,7 +674,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               children: [
                 Text(transformed.title, style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 12),
-                Text('Malzemeler', style: Theme.of(context).textTheme.titleMedium),
+                Text(AppLocalizations.of(context).ingredients, style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
                 ...transformed.ingredients.map((e) => ListTile(
                       dense: true,
@@ -393,7 +682,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                       title: Text(e),
                     )),
                 const SizedBox(height: 12),
-                Text('Adımlar', style: Theme.of(context).textTheme.titleMedium),
+                Text(AppLocalizations.of(context).steps, style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 6),
                 ...transformed.steps.asMap().entries.map((e) => ListTile(
                       dense: true,

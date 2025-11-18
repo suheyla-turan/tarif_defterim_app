@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/auth_provider.dart';
-import '../recipes/screens/add_recipe_screen.dart';
+import '../../core/providers/localization_provider.dart';
 import '../recipes/screens/my_recipes_screen.dart';
 import '../recipes/screens/search_screen.dart';
 import '../shopping/screens/shopping_list_screen.dart';
@@ -16,43 +17,47 @@ class HomeView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appUser = ref.watch(authControllerProvider).user;
+    final l10n = AppLocalizations.of(context);
 
-    // ✅ Öncelik: firstName + lastName → displayName → email → "kullanıcı"
-    final fullName = [
-      appUser?.firstName?.trim(),
-      appUser?.lastName?.trim(),
-    ].where((e) => (e ?? '').isNotEmpty).join(' ').trim();
+    // ✅ Öncelik: firstName → firstName + lastName → displayName → email → "kullanıcı"
+    final firstName = appUser?.firstName?.trim() ?? '';
+    final lastName = appUser?.lastName?.trim() ?? '';
+    
+    String userName;
+    if (firstName.isNotEmpty) {
+      userName = lastName.isNotEmpty ? '$firstName $lastName' : firstName;
+    } else if ((appUser?.displayName?.trim().isNotEmpty ?? false)) {
+      userName = appUser!.displayName!;
+    } else {
+      final email = appUser?.email;
+      userName = email != null ? email.split('@').first : (l10n.isTurkish ? 'kullanıcı' : 'user');
+    }
 
-    final fallbackName = (appUser?.displayName?.trim().isNotEmpty ?? false)
-        ? appUser!.displayName!
-        : (appUser?.email ?? 'kullanıcı');
-
-    final greetingText = 'Hoş geldin, ${fullName.isNotEmpty ? fullName : fallbackName}';
+    final greetingText = '${l10n.welcome}, $userName';
 
     return Scaffold(
       endDrawer: _MenuDrawer(onLogout: () {
         Navigator.of(context).pop();
         ref.read(authControllerProvider.notifier).signOut();
       }),
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         centerTitle: false,
         titleSpacing: 12,
-        title: const Text(
-          'TARİF DEFTERİM',
-          style: TextStyle(letterSpacing: 1.2, fontWeight: FontWeight.w800),
+        toolbarHeight: kToolbarHeight,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+        title: Text(
+          l10n.appName,
+          style: const TextStyle(letterSpacing: 1.2, fontWeight: FontWeight.w800),
         ),
         actions: [
           IconButton(
-            tooltip: 'Yeni Tarif',
-            icon: const Icon(Icons.add_circle_outline),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AddRecipeScreen()),
-              );
-            },
-          ),
-          IconButton(
-            tooltip: 'Ara',
+            tooltip: l10n.search,
             icon: const Icon(Icons.search),
             onPressed: () {
               Navigator.of(context).push(
@@ -60,74 +65,233 @@ class HomeView extends ConsumerWidget {
               );
             },
           ),
-          Builder(
-            builder: (ctx) => IconButton(
-              tooltip: 'Menü',
-              icon: const Icon(Icons.menu),
-              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-            ),
+          IconButton(
+            tooltip: l10n.settings,
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: l10n.profile,
+            icon: const Icon(Icons.person),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              );
+            },
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(32),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(greetingText, style: Theme.of(context).textTheme.titleMedium),
+          preferredSize: const Size.fromHeight(20),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text(
+                greetingText,
+                textAlign: TextAlign.left,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
           ),
         ),
       ),
 
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Kategoriler',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.2,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.surface,
+              Theme.of(context).brightness == Brightness.dark
+                  ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3)
+                  : Colors.orange.shade50,
+              Theme.of(context).brightness == Brightness.dark
+                  ? Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.2)
+                  : Colors.amber.shade50,
+            ],
+            stops: const [0.0, 0.5, 1.0],
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenWidth = constraints.maxWidth;
+            final screenHeight = constraints.maxHeight;
+            
+            // Anasayfa için sadece mutfak malzemeleri/araçları
+            final kitchenIcons = [
+              Icons.soup_kitchen,     // Tencere
+              Icons.blender,          // Blender
+              Icons.kitchen,          // Mutfak (tava/kap olarak)
+              Icons.local_dining,     // Yemek (kepçe olarak)
+              Icons.set_meal,         // Yemek seti (spatula olarak)
+              Icons.restaurant_menu,  // Menü (mutfak aleti olarak)
+              Icons.bakery_dining,    // Fırın
+              Icons.breakfast_dining, // Kahvaltı (mutfak aleti olarak)
+            ];
+            
+            // Grid parametreleri - karışık ama düzenli yerleşim için
+            final cols = 6; // Sütun sayısı
+            final rows = 8; // Satır sayısı
+            final cellWidth = screenWidth / cols;
+            final cellHeight = screenHeight / rows;
+            final iconSize = (cellWidth * 0.4).clamp(40.0, 70.0);
+            final spacing = cellWidth * 0.15; // Simgeler arası boşluk
+            final maxOffset = cellWidth * 0.25; // Karışık görünüm için maksimum offset
+            
+            // Rotasyon açıları
+            final rotations = [
+              0.3, -0.2, 0.5, -0.4, 0.3, -0.25,
+              0.45, 0.5, -0.4, 0.3, -0.6, 0.25,
+              -0.35, 0.55, 0.2, -0.5, 0.4, -0.3,
+              0.6, -0.25, 0.45, 0.3, -0.2, 0.5,
+            ];
+            
+            // Opacity değerleri
+            final opacities = [
+              0.12, 0.14, 0.11, 0.13, 0.10, 0.15,
+              0.12, 0.13, 0.11, 0.14, 0.10, 0.15,
+              0.12, 0.13, 0.11, 0.14, 0.10, 0.15,
+              0.12, 0.13, 0.11, 0.14, 0.10, 0.15,
+            ];
+            
+            // Renkler
+            final colors = [
+              Colors.orange,
+              Colors.amber,
+              Colors.brown,
+              Colors.grey,
+              Colors.blueGrey,
+              Colors.deepOrange,
+            ];
+            
+            return Stack(
+              children: [
+                // Karışık ama düzenli grid sistemine göre mutfak malzemeleri
+                ...List.generate(
+                  cols * rows,
+                  (index) {
+                    final row = index ~/ cols;
+                    final col = index % cols;
+                    
+                    // Grid pozisyonu - hücrenin merkezi
+                    final baseX = cellWidth * (col + 0.5) - iconSize / 2;
+                    final baseY = cellHeight * (row + 0.5) - iconSize / 2;
+                    
+                    // Karışık görünüm için rastgele offset (ama tutarlı - index'e bağlı)
+                    final offsetX = ((index % 7) - 3) * (maxOffset / 3);
+                    final offsetY = ((index % 5) - 2) * (maxOffset / 3);
+                    
+                    final x = (baseX + offsetX).clamp(spacing, screenWidth - iconSize - spacing);
+                    final y = (baseY + offsetY).clamp(spacing, screenHeight - iconSize - spacing);
+                    
+                    final iconData = kitchenIcons[index % kitchenIcons.length];
+                    final rotation = rotations[index % rotations.length];
+                    final opacity = opacities[index % opacities.length];
+                    final color = colors[index % colors.length];
+                    
+                    return Positioned(
+                      left: x,
+                      top: y,
+                      child: Transform.rotate(
+                        angle: rotation,
+                        child: Icon(
+                          iconData,
+                          size: iconSize,
+                          color: color.withOpacity(opacity),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                // İçerik
+                Padding(
+                  padding: EdgeInsets.only(
+                    top: MediaQuery.of(context).padding.top + kToolbarHeight + 20 + 4,
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                  ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _CategoryCard(
-                    title: 'Yemekler',
-                    icon: Icons.restaurant,
-                    color: Colors.orange,
-                    onTap: () => _navigateToCategory(context, 'yemek'),
+                  Text(
+                    l10n.categories,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  _CategoryCard(
-                    title: 'Tatlılar',
-                    icon: Icons.cake,
-                    color: Colors.pink,
-                    onTap: () => _navigateToCategory(context, 'tatli'),
-                  ),
-                  _CategoryCard(
-                    title: 'İçecekler',
-                    icon: Icons.local_drink,
-                    color: Colors.blue,
-                    onTap: () => _navigateToCategory(context, 'icecek'),
-                  ),
-                  _CategoryCard(
-                    title: 'Tüm Tarifler',
-                    icon: Icons.menu_book,
-                    color: Colors.green,
-                    onTap: () => _navigateToAllRecipes(context),
+                  Expanded(
+                    child: GridView.count(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      padding: EdgeInsets.zero,
+                      childAspectRatio: 1.2,
+                      children: [
+                        _CategoryCard(
+                          title: l10n.meals,
+                          icon: Icons.dining,
+                          color: Colors.orange,
+                          onTap: () => _navigateToCategory(context, 'yemek'),
+                        ),
+                        _CategoryCard(
+                          title: l10n.desserts,
+                          icon: Icons.cake,
+                          color: Colors.pink,
+                          onTap: () => _navigateToCategory(context, 'tatli'),
+                        ),
+                        _CategoryCard(
+                          title: l10n.drinks,
+                          icon: Icons.local_drink,
+                          color: Colors.blue,
+                          onTap: () => _navigateToCategory(context, 'icecek'),
+                        ),
+                        _CategoryCard(
+                          title: l10n.favorites,
+                          icon: Icons.favorite,
+                          color: Colors.red,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const FavoritesScreen()),
+                            );
+                          },
+                        ),
+                        _CategoryCard(
+                          title: l10n.shoppingList,
+                          icon: Icons.shopping_cart,
+                          color: Colors.green,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const ShoppingListScreen()),
+                            );
+                          },
+                        ),
+                        _CategoryCard(
+                          title: l10n.myRecipes,
+                          icon: Icons.menu_book,
+                          color: Colors.purple,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 80),
-          ],
+              ],
+            );
+          },
         ),
       ),
 
@@ -143,13 +307,6 @@ class HomeView extends ConsumerWidget {
     );
   }
 
-  void _navigateToAllRecipes(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CategoryRecipesScreen(mainType: null),
-      ),
-    );
-  }
 }
 
 class _CategoryCard extends StatelessWidget {
@@ -216,6 +373,7 @@ class _MenuDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final titleStyle = Theme.of(context).textTheme.headlineSmall?.copyWith(
           fontWeight: FontWeight.w800,
           letterSpacing: 1,
@@ -228,11 +386,11 @@ class _MenuDrawer extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
             const SizedBox(height: 8),
-            Text('MENÜ', style: titleStyle),
+            Text(l10n.appName, style: titleStyle),
             const Divider(thickness: 1.2),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Tariflerim', style: TextStyle(fontWeight: FontWeight.w700)),
+              title: Text(l10n.myRecipes, style: const TextStyle(fontWeight: FontWeight.w700)),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
@@ -242,7 +400,7 @@ class _MenuDrawer extends StatelessWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Alışveriş Listem', style: TextStyle(fontWeight: FontWeight.w700)),
+              title: Text(l10n.shoppingList, style: const TextStyle(fontWeight: FontWeight.w700)),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
@@ -252,7 +410,7 @@ class _MenuDrawer extends StatelessWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Beğendiklerim', style: TextStyle(fontWeight: FontWeight.w700)),
+              title: Text(l10n.favorites, style: const TextStyle(fontWeight: FontWeight.w700)),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
@@ -265,8 +423,8 @@ class _MenuDrawer extends StatelessWidget {
             const SizedBox(height: 16),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Profil',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              title: Text(l10n.profile,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
@@ -276,7 +434,7 @@ class _MenuDrawer extends StatelessWidget {
             ),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Ayarlar'),
+              title: Text(l10n.settings),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.of(context).push(
@@ -288,7 +446,7 @@ class _MenuDrawer extends StatelessWidget {
             FilledButton.tonalIcon(
               onPressed: onLogout,
               icon: const Icon(Icons.logout),
-              label: const Text('Çıkış'),
+              label: Text(l10n.signOut),
             ),
           ],
         ),
