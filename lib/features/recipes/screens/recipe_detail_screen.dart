@@ -149,6 +149,23 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     }
   }
 
+  // Sayıyı Türkçe metne çevir (ör: 1 -> "bir", 2 -> "iki")
+  String _numberToTurkishText(int number) {
+    const turkishNumbers = [
+      'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz', 'on',
+      'on bir', 'on iki', 'on üç', 'on dört', 'on beş', 'on altı', 'on yedi', 'on sekiz', 'on dokuz', 'yirmi',
+      'yirmi bir', 'yirmi iki', 'yirmi üç', 'yirmi dört', 'yirmi beş', 'yirmi altı', 'yirmi yedi', 'yirmi sekiz', 'yirmi dokuz', 'otuz',
+      'otuz bir', 'otuz iki', 'otuz üç', 'otuz dört', 'otuz beş', 'otuz altı', 'otuz yedi', 'otuz sekiz', 'otuz dokuz', 'kırk',
+      'kırk bir', 'kırk iki', 'kırk üç', 'kırk dört', 'kırk beş', 'kırk altı', 'kırk yedi', 'kırk sekiz', 'kırk dokuz', 'elli',
+    ];
+    
+    if (number > 0 && number <= turkishNumbers.length) {
+      return turkishNumbers[number - 1];
+    }
+    // Eğer sayı listede yoksa, sayıyı string olarak döndür
+    return number.toString();
+  }
+
   Future<void> _speakCurrent() async {
     if (_currentStepIndex < 0 || _currentStepIndex >= widget.recipe.steps.length) {
       // Tüm adımlar bitti
@@ -168,7 +185,9 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
       setState(() => _isSpeaking = true);
     }
     try {
-      await _tts.speak('Adım ${_currentStepIndex + 1}. ${widget.recipe.steps[_currentStepIndex]}');
+      final stepNumber = _currentStepIndex + 1;
+      final stepNumberText = _numberToTurkishText(stepNumber);
+      await _tts.speak('Adım $stepNumberText. ${widget.recipe.steps[_currentStepIndex]}');
     } catch (_) {
       // Konuşma başarısız olursa sessizce geç
       if (mounted) {
@@ -240,30 +259,57 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
         onResult: (res) {
           final text = res.recognizedWords.toLowerCase().trim();
           
-          // "çırak" komutunu algıla - tüm adımları okumaya başla
-          if (text.contains('çırak') && !text.contains('dur') && !text.contains('devam')) {
-            if (!_isReadingAllSteps && !_isSpeaking) {
-              _startReadingAllSteps();
-            }
-          }
-          // "çırak dur" komutunu algıla
-          else if (text.contains('çırak') && text.contains('dur')) {
+          // "çırak dur" komutunu algıla - sadece okumayı durdur, dinlemeye devam et
+          if (text.contains('çırak') && text.contains('dur')) {
             _pauseReading();
+            // Dinlemeyi durdurma, sürekli dinlemeye devam et
+            return;
           }
           // "çırak devam et" komutunu algıla
           else if (text.contains('çırak') && (text.contains('devam') || text.contains('devam et'))) {
             _resumeReading();
+            // Eğer dinleme durmuşsa ve sürekli dinleme modu aktifse tekrar başlat
+            if (!_stt.isListening && _isContinuousListeningEnabled) {
+              _startContinuousListening();
+            }
+            return;
           }
-          // Eski komutlar (geriye dönük uyumluluk için)
-          else if (text.contains('başlat') || text.contains('oku') || text.contains('başla')) {
+          // "çırak başla" veya sadece "çırak" komutunu algıla - tüm adımları okumaya başla
+          else if (text.contains('çırak') && (text.contains('başla') || (!text.contains('dur') && !text.contains('devam')))) {
             if (!_isReadingAllSteps && !_isSpeaking) {
               _startReadingAllSteps();
             }
-          } else if (text.contains('durdur') || text.contains('bitir')) {
-            _pauseReading();
-          } else if (text.contains('devam') && !text.contains('çırak')) {
-            _resumeReading();
-          } else if (text.contains('sonraki') || text.contains('ileri')) {
+            return;
+          }
+          // "başla" komutunu algıla (çırak olmadan da çalışır)
+          else if (text.contains('başla') || text.contains('başlat') || text.contains('oku')) {
+            if (!_isReadingAllSteps && !_isSpeaking) {
+              _startReadingAllSteps();
+            }
+            return;
+          }
+          // "dur" komutunu algıla (çırak olmadan da çalışır) - sadece okumayı durdur
+          else if (text.contains('dur') || text.contains('durdur') || text.contains('bitir')) {
+            // Eğer "çırak dur" ise zaten yukarıda işlendi
+            if (!text.contains('çırak')) {
+              _pauseReading();
+            }
+            return;
+          }
+          // "devam et" komutunu algıla (çırak olmadan da çalışır)
+          else if (text.contains('devam')) {
+            // Eğer "çırak devam" ise zaten yukarıda işlendi
+            if (!text.contains('çırak')) {
+              _resumeReading();
+              // Eğer dinleme durmuşsa ve sürekli dinleme modu aktifse tekrar başlat
+              if (!_stt.isListening && _isContinuousListeningEnabled) {
+                _startContinuousListening();
+              }
+            }
+            return;
+          }
+          // Navigasyon komutları
+          else if (text.contains('sonraki') || text.contains('ileri')) {
             if (!_isReadingAllSteps) {
               _nextStep();
             }
@@ -329,6 +375,9 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
   void _pauseReading() {
     _isPaused = true;
     _stop();
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _resumeReading() {
@@ -501,18 +550,28 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   onPressed: () {
                     final l10n = AppLocalizations.of(context);
                     if (!_isContinuousListeningEnabled || !_stt.isListening) {
-                      // Dinleme modunu başlat
+                      // Dinleme modunu başlat - bir kez basınca sürekli dinlemeye başla
                       _startContinuousListening();
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(l10n.isTurkish 
-                              ? 'Sesli komut aktif. "Çırak" diyerek başlatabilir, "Çırak dur" diyerek durdurabilirsiniz.' 
-                              : 'Voice command active. Say "Assistant" to start, "Assistant stop" to pause.'),
+                              ? 'Çırak aktif! "Çırak başla", "Çırak dur", "Çırak devam et" komutlarını kullanabilirsiniz.' 
+                              : 'Assistant active! Use "Assistant start", "Assistant stop", "Assistant continue" commands.'),
                           duration: const Duration(seconds: 3),
                         ),
                       );
+                    } else {
+                      // Tekrar basınca dinlemeyi durdur
+                      _stopListening();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(l10n.isTurkish 
+                              ? 'Çırak durduruldu. Tekrar başlatmak için butona basın.' 
+                              : 'Assistant stopped. Press the button to start again.'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
                     }
-                    // Butona tekrar basılsa bile dinlemeyi durdurma, sürekli dinleme modunda kal
                   },
                   icon: Icon(_stt.isListening 
                       ? (_isReadingAllSteps ? Icons.volume_up : Icons.mic) 
