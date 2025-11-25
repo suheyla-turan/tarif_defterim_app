@@ -61,6 +61,124 @@ exports.transformRecipe = functions.https.onCall(async (data, context) => {
   }
 });
 
+// Belirli bir tarif hakkında soru-cevap
+exports.askRecipeQuestion = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      'unauthenticated',
+      'Kullanıcı girişi gerekli'
+    );
+  }
+
+  const { recipe, question, imageUrl } = data;
+
+  if (!recipe || !question || typeof question !== 'string') {
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'Tarif ve soru gerekli'
+    );
+  }
+
+  // OpenAI anahtarı yoksa basit, tarif bilgilerini özetleyen bir cevap ver
+  if (!OPENAI_API_KEY) {
+    const lines = [];
+    lines.push(`Bu cevap akıllı asistan olmadan oluşturuldu, ama tarif bilgilerini özetleyebilirim.`);
+    lines.push(`\nTarif: ${recipe.title || 'Bilinmeyen tarif'}`);
+    if (recipe.portions) {
+      lines.push(`Porsiyon: ${recipe.portions}`);
+    }
+    if (Array.isArray(recipe.ingredients)) {
+      lines.push('\nMalzemeler:');
+      recipe.ingredients.forEach((ing) => lines.push(`- ${ing}`));
+    }
+    if (Array.isArray(recipe.steps)) {
+      lines.push('\nAdımlar:');
+      recipe.steps.forEach((step, idx) => lines.push(`${idx + 1}. ${step}`));
+    }
+    return { answer: lines.join('\n') };
+  }
+
+  try {
+    const ingredientsText = Array.isArray(recipe.ingredients)
+      ? recipe.ingredients.map((i) => `- ${i}`).join('\n')
+      : '';
+    const stepsText = Array.isArray(recipe.steps)
+      ? recipe.steps.map((s, idx) => `${idx + 1}. ${s}`).join('\n')
+      : '';
+
+    const systemPrompt =
+      'Sen deneyimli bir Türk şef ve beslenme uzmanısın. Kullanıcı sadece belirli bir tarif hakkında sorular soracak.' +
+      ' YALNIZCA verilen tarif bilgilerini (başlık, açıklama, malzemeler, adımlar, porsiyon, ana/alt tür) kullan.' +
+      ' Tahmin yürütmen gerektiğinde bunu açıkça belirt, uydurma veri ekleme.' +
+      ' Cevaplarını kısa, net ve konuşma dilinde, TÜRKÇE olarak ver.';
+
+    const userPrompt = `Tarif bilgileri:
+Başlık: ${recipe.title || ''}
+Ana tür: ${recipe.mainType || ''}
+Alt tür: ${recipe.subType || ''}
+Porsiyon: ${recipe.portions || ''}
+Açıklama: ${recipe.description || ''}
+
+Malzemeler:
+${ingredientsText}
+
+Adımlar:
+${stepsText}
+
+Kullanıcının sorusu:
+${question}
+
+Lütfen sadece bu tarif bağlamında cevap ver.
+
+Eğer bir fotoğraf bağlantısı verilmişse, bu fotoğraf tarifle ilgili olabilir. Fotoğrafı yorumlarken yine sadece tarifin bağlamında kalmaya çalış:
+${imageUrl ? imageUrl : '(fotoğraf yok)'} 
+`;
+
+    const userContent = imageUrl
+      ? [
+          { type: 'text', text: userPrompt },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ]
+      : userPrompt;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.4,
+        max_tokens: 800,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content || '';
+
+    if (!content.trim()) {
+      throw new Error('Boş cevap döndü');
+    }
+
+    return { answer: content.trim() };
+  } catch (error) {
+    console.error('askRecipeQuestion error:', error);
+    throw new functions.https.HttpsError(
+      'internal',
+      'Tarif sorusu yanıtlanırken bir hata oluştu: ' + error.message
+    );
+  }
+});
+
 // Vegan dönüştürme (OpenAI ile)
 async function transformToVegan(recipe) {
   if (!OPENAI_API_KEY) {

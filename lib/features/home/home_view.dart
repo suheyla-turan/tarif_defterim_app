@@ -237,7 +237,7 @@ class HomeView extends ConsumerWidget {
                       children: [
                         _CategoryCard(
                           title: l10n.meals,
-                          icon: Icons.dining,
+                          icon: Icons.room_service, // Yemek simgesi: tepsi
                           color: Colors.orange,
                           onTap: () => _navigateToCategory(context, 'yemek'),
                         ),

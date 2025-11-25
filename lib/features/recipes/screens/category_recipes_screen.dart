@@ -254,18 +254,18 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
 
     // Çeşitli yemek simgeleri - tabakta yemekler, çorbalar, meze, salata, ana yemek vb.
     final mealCategoryIcons = [
-      Icons.soup_kitchen,      // Çorba
-      Icons.restaurant_menu,   // Ana yemek
-      Icons.set_meal,          // Meze
-      Icons.eco,               // Salata
-      Icons.bakery_dining,     // Hamur işi
-      Icons.dining,            // Tabakta yemek
+      Icons.soup_kitchen,       // Çorba
+      Icons.dinner_dining,      // Ana yemek - tabakta yemek
+      Icons.set_meal,           // Meze
+      Icons.rice_bowl,          // Salata / kasede salata
+      Icons.bakery_dining,      // Hamur işi
+      Icons.dining,             // Genel tabakta yemek
       Icons.restaurant,         // Restoran yemeği
-      Icons.local_dining,      // Yerel yemek
-      Icons.fastfood,          // Fast food
-      Icons.local_pizza,       // Pizza
-      Icons.breakfast_dining,  // Kahvaltı
-      Icons.lunch_dining,      // Öğle yemeği
+      Icons.local_dining,       // Yerel yemek
+      Icons.fastfood,           // Fast food
+      Icons.local_pizza,        // Pizza
+      Icons.breakfast_dining,   // Kahvaltı
+      Icons.lunch_dining,       // Öğle yemeği
     ];
     
     // Grid parametreleri - asimetrik ama eşit boşluklu yerleşim için
@@ -590,6 +590,8 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
         return l10n.salad;
       case 'hamur_isi':
         return l10n.pastry;
+      case 'kahvaltilik':
+        return l10n.isTurkish ? 'Kahvaltılık' : 'Breakfast dishes';
       case 'sutlu':
         return l10n.milky;
       case 'serbetli':
@@ -625,13 +627,15 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
       case 'corba':
         return Icons.soup_kitchen;
       case 'ana_yemek':
-        return Icons.restaurant_menu;
+        return Icons.dinner_dining; // Ana yemek simgesi: tabakta yemek
       case 'meze':
         return Icons.set_meal;
       case 'salata':
-        return Icons.eco;
+        return Icons.rice_bowl; // Salata simgesi: tabakta/kasede yemek
       case 'hamur_isi':
         return Icons.bakery_dining;
+      case 'kahvaltilik':
+        return Icons.breakfast_dining;
       case 'sutlu':
         return Icons.icecream;
       case 'serbetli':

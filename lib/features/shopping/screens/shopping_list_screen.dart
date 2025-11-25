@@ -176,7 +176,12 @@ class _ShoppingListScreenState extends ConsumerState<ShoppingListScreen> {
             final mergedItems = _aiMergedItems;
             if (mergedItems == null) {
               // İlk kez birleştirilmiş listeyi gösteriyoruz, AI ile birleştir
-              _mergeWithAI(entries);
+              // DİKKAT: build sırasında doğrudan setState çağırmamak için
+              // işlemi bir sonraki frame'e erteliyoruz.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted || _isMergingWithAI) return;
+                _mergeWithAI(entries);
+              });
               return const Center(child: CircularProgressIndicator());
             }
             

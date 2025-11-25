@@ -9,6 +9,9 @@ import '../../../core/providers/localization_provider.dart';
 import '../models/recipe.dart';
 import '../../shopping/application/shopping_provider.dart';
 import '../../ai/application/ai_recipe_service.dart' as ai;
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:firebase_storage/firebase_storage.dart';
 
 class RecipeDetailScreen extends ConsumerStatefulWidget {
   final Recipe recipe;
@@ -477,70 +480,10 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                         );
                       },
               ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) async {
-                  if (value == 'vegan') {
-                    final service = ref.read(ai.aiRecipeServiceProvider);
-                    final transformed = await service.transformRecipe(
-                      base: currentRecipe,
-                      type: ai.RecipeTransformType.vegan,
-                    );
-                    if (!mounted) return;
-                    _showTransformedSheet(context, transformed);
-                  } else if (value == 'diet') {
-                    final service = ref.read(ai.aiRecipeServiceProvider);
-                    final transformed = await service.transformRecipe(
-                      base: currentRecipe,
-                      type: ai.RecipeTransformType.diet,
-                    );
-                    if (!mounted) return;
-                    _showTransformedSheet(context, transformed);
-                  } else if (value == 'portion') {
-                    final portions = await _askPortion(context);
-                    if (portions == null) return;
-                    final service = ref.read(ai.aiRecipeServiceProvider);
-                    final transformed = await service.transformRecipe(
-                      base: currentRecipe,
-                      type: ai.RecipeTransformType.portion,
-                      targetPortions: portions,
-                    );
-                    if (!mounted) return;
-                    _showTransformedSheet(context, transformed);
-                  }
-                },
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    value: 'vegan',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.eco_outlined),
-                        const SizedBox(width: 8),
-                        Text(l10n.vegan),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'diet',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.local_fire_department_outlined),
-                        const SizedBox(width: 8),
-                        Text(l10n.diet),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'portion',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.reduce_capacity_outlined),
-                        const SizedBox(width: 8),
-                        Text(l10n.portion),
-                      ],
-                    ),
-                  ),
-                ],
+              IconButton(
+                tooltip: l10n.isTurkish ? 'Tarif AI sohbeti' : 'Recipe AI chat',
+                icon: const Icon(Icons.smart_toy_outlined),
+                onPressed: () => _openRecipeAiChat(currentRecipe),
               ),
             ],
           ),
@@ -689,74 +632,6 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     );
   }
 
-  Future<int?> _askPortion(BuildContext context) async {
-    final l10n = AppLocalizations.of(context);
-    final controller = TextEditingController(text: '2');
-    final res = await showDialog<int>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(l10n.portionCount),
-          content: TextField(
-            controller: controller,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(hintText: l10n.portionExample),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.cancel)),
-            FilledButton(
-              onPressed: () {
-                final val = int.tryParse(controller.text.trim());
-                Navigator.pop(ctx, val);
-              },
-              child: Text(l10n.apply),
-            ),
-          ],
-        );
-      },
-    );
-    return res;
-  }
-
-  void _showTransformedSheet(BuildContext context, Recipe transformed) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.85,
-          builder: (_, controller) {
-            return ListView(
-              controller: controller,
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(transformed.title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                Text(AppLocalizations.of(context).ingredients, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
-                ...transformed.ingredients.map((e) => ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.check_circle_outline),
-                      title: Text(e),
-                    )),
-                const SizedBox(height: 12),
-                Text(AppLocalizations.of(context).steps, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
-                ...transformed.steps.asMap().entries.map((e) => ListTile(
-                      dense: true,
-                      leading: CircleAvatar(child: Text('${e.key + 1}')),
-                      title: Text(e.value),
-                    )),
-                const SizedBox(height: 24),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _openImageViewer(String url) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -774,6 +649,410 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
       ),
     );
   }
+
+  void _openRecipeAiChat(Recipe recipe) {
+    final service = ref.read(ai.aiRecipeServiceProvider);
+    final l10n = AppLocalizations.of(context);
+    final questionController = TextEditingController();
+    final portionController = TextEditingController(text: (recipe.portions ?? 2).toString());
+    String? answer;
+    Recipe? transformedRecipe;
+    bool isLoading = false;
+    String? errorText;
+    File? attachedImage;
+    String? attachedImageUrl;
+    bool isUploadingImage = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.85,
+          minChildSize: 0.6,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: StatefulBuilder(
+                builder: (ctx, setModalState) {
+                  Future<void> runTransform(ai.RecipeTransformType type) async {
+                    setModalState(() {
+                      isLoading = true;
+                      errorText = null;
+                      answer = null;
+                      transformedRecipe = null;
+                    });
+                    try {
+                      final res = await service.transformRecipe(
+                        base: recipe,
+                        type: type,
+                      );
+                      setModalState(() {
+                        transformedRecipe = res;
+                      });
+                    } catch (e) {
+                      setModalState(() {
+                        errorText = l10n.isTurkish
+                            ? 'Tarif dönüştürülürken bir hata oluştu.'
+                            : 'An error occurred while transforming the recipe.';
+                      });
+                    } finally {
+                      setModalState(() {
+                        isLoading = false;
+                      });
+                    }
+                  }
+
+                  Future<void> sendQuestion(String q) async {
+                    final trimmed = q.trim();
+                    if (trimmed.isEmpty) {
+                      setModalState(() {
+                        errorText = l10n.isTurkish
+                            ? 'Lütfen tarifle ilgili bir soru yazın.'
+                            : 'Please enter a question about the recipe.';
+                      });
+                      return;
+                    }
+                    // Kullanıcı "vegan/diyet versiyon" gibi bir ifade ile özellikle dönüşüm istiyorsa,
+                    // metin tabanlı cevap yerine doğrudan tarif dönüştürme fonksiyonunu kullan.
+                    final lower = trimmed.toLowerCase();
+                    final wantsVegan = lower.contains('vegan versiyon') ||
+                        lower.contains('vegan yap') ||
+                        lower.contains('vegan hale') ||
+                        lower.contains("vegana çevir") ||
+                        lower.contains('vegan olsun');
+                    final wantsDiet = lower.contains('diyet versiyon') ||
+                        lower.contains('diyet yap') ||
+                        lower.contains('diyet hale') ||
+                        lower.contains("diyete çevir") ||
+                        lower.contains('diyet olsun');
+                    if (wantsVegan) {
+                      await runTransform(ai.RecipeTransformType.vegan);
+                      return;
+                    }
+                    if (wantsDiet) {
+                      await runTransform(ai.RecipeTransformType.diet);
+                      return;
+                    }
+                    setModalState(() {
+                      isLoading = true;
+                      errorText = null;
+                      answer = null;
+                      transformedRecipe = null;
+                    });
+                    try {
+                      String? imageUrlToSend = attachedImageUrl;
+                      if (attachedImage != null && attachedImageUrl == null) {
+                        setModalState(() {
+                          isUploadingImage = true;
+                        });
+                        try {
+                          final storage = FirebaseStorage.instance;
+                          final name =
+                              'ai_questions/${DateTime.now().millisecondsSinceEpoch}_${attachedImage!.path.split('/').last}';
+                          final ref = storage.ref().child(name);
+                          final task = await ref.putFile(attachedImage!);
+                          imageUrlToSend = await task.ref.getDownloadURL();
+                          setModalState(() {
+                            attachedImageUrl = imageUrlToSend;
+                          });
+                        } catch (_) {
+                          // upload error, ignore image
+                          imageUrlToSend = null;
+                        } finally {
+                          setModalState(() {
+                            isUploadingImage = false;
+                          });
+                        }
+                      }
+                      final res = await service.askRecipeQuestion(
+                        recipe: recipe,
+                        question: trimmed,
+                        imageUrl: imageUrlToSend,
+                      );
+                      setModalState(() {
+                        answer = res;
+                      });
+                    } catch (e) {
+                      setModalState(() {
+                        errorText = l10n.isTurkish
+                            ? 'Yanıt alınırken bir hata oluştu.'
+                            : 'An error occurred while getting the answer.';
+                      });
+                    } finally {
+                      setModalState(() {
+                        isLoading = false;
+                      });
+                    }
+                  }
+
+                  Future<void> sendPortionQuestion() async {
+                    final text = portionController.text.trim();
+                    final val = int.tryParse(text);
+                    if (val == null || val <= 0) {
+                      setModalState(() {
+                        errorText = l10n.isTurkish
+                            ? 'Lütfen geçerli bir porsiyon sayısı yazın.'
+                            : 'Please enter a valid portion count.';
+                      });
+                      return;
+                    }
+                    final q = l10n.isTurkish
+                        ? '${recipe.title} tarifini $val kişilik olacak şekilde porsiyonla ve malzemeleri/adımları buna göre güncelle.'
+                        : 'Scale the recipe "${recipe.title}" to serve $val people and update ingredients/steps accordingly.';
+                    await sendQuestion(q);
+                  }
+
+                  Future<void> pickImage() async {
+                    final picker = ImagePicker();
+                    final source = await showModalBottomSheet<ImageSource>(
+                      context: context,
+                      builder: (c) => SafeArea(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.photo_library_outlined),
+                              title: Text(l10n.isTurkish ? 'Galeriden seç' : 'From gallery'),
+                              onTap: () => Navigator.pop(c, ImageSource.gallery),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.photo_camera_outlined),
+                              title: Text(l10n.isTurkish ? 'Kameradan çek' : 'From camera'),
+                              onTap: () => Navigator.pop(c, ImageSource.camera),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                    if (source == null) return;
+                    final file = await picker.pickImage(
+                      source: source,
+                      imageQuality: 85,
+                      maxWidth: 1600,
+                    );
+                    if (file == null) return;
+                    setModalState(() {
+                      attachedImage = File(file.path);
+                      attachedImageUrl = null;
+                    });
+                  }
+
+                  return SafeArea(
+                    child: ListView(
+                      controller: scrollController,
+                      children: [
+                        Text(
+                          l10n.isTurkish
+                              ? 'Tarif AI asistan'
+                              : 'Recipe AI assistant',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          l10n.isTurkish
+                              ? 'Bu sayfa sadece bu tarifin başlığı, malzemeleri ve adımlarına göre cevap verir.'
+                              : 'This page answers only based on this recipe\'s title, ingredients and steps.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ActionChip(
+                              avatar: const Icon(Icons.eco_outlined, size: 18),
+                              label: Text(l10n.isTurkish ? 'Vegan yap' : 'Make vegan'),
+                              onPressed: isLoading
+                                  ? null
+                                  : () => runTransform(ai.RecipeTransformType.vegan),
+                            ),
+                            ActionChip(
+                              avatar: const Icon(Icons.local_fire_department_outlined, size: 18),
+                              label: Text(l10n.isTurkish ? 'Diyet versiyon' : 'Diet version'),
+                              onPressed: isLoading
+                                  ? null
+                                  : () => runTransform(ai.RecipeTransformType.diet),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.isTurkish
+                              ? 'Porsiyon ayarla'
+                              : 'Adjust portions',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: portionController,
+                                keyboardType: TextInputType.number,
+                                decoration: InputDecoration(
+                                  labelText: l10n.isTurkish
+                                      ? 'Kaç kişilik olsun?'
+                                      : 'How many servings?',
+                                  hintText: l10n.isTurkish ? 'Örn: 4' : 'e.g. 4',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: isLoading ? null : sendPortionQuestion,
+                              child: Text(l10n.isTurkish ? 'Uygula' : 'Apply'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.isTurkish
+                              ? 'Kendi sorunuzu yazın'
+                              : 'Ask your own question',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.isTurkish
+                              ? 'Fotoğraflı soru (isteğe bağlı)'
+                              : 'Photo question (optional)',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: isUploadingImage ? null : pickImage,
+                              icon: const Icon(Icons.add_a_photo_outlined),
+                              label: Text(
+                                l10n.isTurkish ? 'Fotoğraf ekle' : 'Add photo',
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            if (isUploadingImage)
+                              const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (attachedImage != null)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              attachedImage!,
+                              height: 120,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.isTurkish
+                              ? 'Kendi sorunuzu yazın'
+                              : 'Ask your own question',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: questionController,
+                          textInputAction: TextInputAction.send,
+                          maxLines: 4,
+                          minLines: 1,
+                          onSubmitted: (_) => sendQuestion(questionController.text),
+                          decoration: InputDecoration(
+                            hintText: l10n.isTurkish
+                                ? 'Örn: Bu tarif kaç kalori? Hangi malzemeyi çıkarabilirim?'
+                                : 'e.g. How many calories is this? Which ingredient can I remove?',
+                            errorText: errorText,
+                            border: const OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: FilledButton.icon(
+                            onPressed: isLoading
+                                ? null
+                                : () => sendQuestion(questionController.text),
+                            icon: isLoading
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.send),
+                            label: Text(
+                              l10n.isTurkish ? 'Sor' : 'Ask',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (transformedRecipe != null || answer != null) ...[
+                          Divider(color: Theme.of(context).dividerColor),
+                          const SizedBox(height: 8),
+                          Text(
+                            l10n.isTurkish ? 'Yapay zeka cevabı' : 'AI answer',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          if (transformedRecipe != null) ...[
+                            Text(
+                              transformedRecipe!.title,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.isTurkish ? 'Malzemeler:' : 'Ingredients:',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 4),
+                            ...transformedRecipe!.ingredients.map(
+                              (ing) => Text('• $ing',
+                                  style: Theme.of(context).textTheme.bodyMedium),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.isTurkish ? 'Adımlar:' : 'Steps:',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            const SizedBox(height: 4),
+                            ...transformedRecipe!.steps.asMap().entries.map(
+                              (e) => Text(
+                                '${e.key + 1}. ${e.value}',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          if (answer != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              answer!,
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                        ],
+                      ],
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
-
-

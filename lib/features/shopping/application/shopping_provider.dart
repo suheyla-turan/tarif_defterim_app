@@ -107,7 +107,8 @@ class ShoppingController extends StateNotifier<AsyncValue<void>> {
         );
       }).toList();
       
-      return items;
+      // AI'den gelen öğeleri gr/kg ve ml/litre bazında birleştir & normalize et
+      return _mergeAndNormalizeItems(items);
     } catch (e) {
       // AI başarısız olursa fallback kullan
       return _mergeAllItemsFallback(entries);
@@ -115,24 +116,130 @@ class ShoppingController extends StateNotifier<AsyncValue<void>> {
   }
 
   List<ShoppingItem> _mergeAllItemsFallback(List<ShoppingEntry> entries) {
-    final Map<String, ShoppingItem> merged = {};
+    // Tüm entry'lerdeki öğeleri tek listede topla
+    final allItems = <ShoppingItem>[];
     for (final entry in entries) {
-      for (final item in entry.items) {
-        final key = item.name.toLowerCase();
-        if (merged.containsKey(key)) {
-          final existing = merged[key]!;
-          final q1 = existing.quantity ?? 0;
-          final q2 = item.quantity ?? 0;
-          merged[key] = existing.copyWith(
-            quantity: (q1 + q2) == 0 ? null : q1 + q2,
-            unit: item.unit ?? existing.unit,
-          );
-        } else {
-          merged[key] = item;
+      allItems.addAll(entry.items);
+    }
+    // Ardından aynı malzemeleri gr/kg ve ml/litre cinsinden birleştir & normalize et
+    return _mergeAndNormalizeItems(allItems);
+  }
+
+  /// Aynı isimdeki malzemeleri birleştirir ve birimleri normalize eder.
+  /// Ağırlık: gr, g, kg -> önce gr'a, sonra 1000 gr ve üstünü kg'a çevirir.
+  /// Hacim: ml, l, lt, litre -> önce ml'ye, sonra 1000 ml ve üstünü litreye çevirir.
+  List<ShoppingItem> _mergeAndNormalizeItems(List<ShoppingItem> items) {
+    // 1) Önce tüm bilinen birimleri temel birime (gram / mililitre) çevirerek topla
+    final Map<String, ShoppingItem> merged = {};
+
+    for (final item in items) {
+      final nameKey = item.name.toLowerCase().trim();
+      final rawUnit = item.unit?.toLowerCase().trim();
+      final rawQuantity = item.quantity;
+
+      String? baseUnit;
+      double? baseQuantity = rawQuantity;
+
+      if (rawQuantity != null && rawUnit != null) {
+        // Ağırlık birimleri
+        if (rawUnit == 'gr' ||
+            rawUnit == 'g' ||
+            rawUnit == 'gram' ||
+            rawUnit == 'grams') {
+          baseUnit = 'g';
+          baseQuantity = rawQuantity;
+        } else if (rawUnit == 'kg' || rawUnit == 'kilogram') {
+          baseUnit = 'g';
+          baseQuantity = rawQuantity * 1000.0;
         }
+        // Hacim birimleri - temel ml
+        else if (rawUnit == 'ml' || rawUnit == 'mililitre') {
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity;
+        } else if (rawUnit == 'l' ||
+            rawUnit == 'lt' ||
+            rawUnit == 'litre' ||
+            rawUnit == 'liter') {
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 1000.0;
+        }
+        // Türkçe mutfak birimleri -> yaklaşık ml
+        else if (rawUnit.contains('çay bardağı') ||
+            rawUnit.contains('cay bardagi')) {
+          // 1 çay bardağı ~ 100 ml
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 100.0;
+        } else if (rawUnit.contains('su bardağı') ||
+            rawUnit.contains('su bardagi')) {
+          // 1 su bardağı ~ 200 ml
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 200.0;
+        } else if (rawUnit.contains('yemek kaşığı') ||
+            rawUnit.contains('yemek kasigi')) {
+          // 1 yemek kaşığı ~ 15 ml
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 15.0;
+        } else if (rawUnit.contains('tatlı kaşığı') ||
+            rawUnit.contains('tatli kasigi')) {
+          // 1 tatlı kaşığı ~ 10 ml
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 10.0;
+        } else if (rawUnit.contains('çay kaşığı') ||
+            rawUnit.contains('cay kasigi')) {
+          // 1 çay kaşığı ~ 5 ml
+          baseUnit = 'ml';
+          baseQuantity = rawQuantity * 5.0;
+        } else {
+          // Diğer/özel birimler (adet vb.) aynen bırak
+          baseUnit = rawUnit;
+          baseQuantity = rawQuantity;
+        }
+      } else {
+        baseUnit = rawUnit;
+        baseQuantity = rawQuantity;
+      }
+
+      final key = '$nameKey::${baseUnit ?? ''}';
+      final existing = merged[key];
+      if (existing == null) {
+        merged[key] = ShoppingItem(
+          name: nameKey,
+          unit: baseUnit,
+          quantity: baseQuantity,
+        );
+      } else {
+        final q1 = existing.quantity ?? 0;
+        final q2 = baseQuantity ?? 0;
+        merged[key] = existing.copyWith(
+          quantity: (q1 + q2) == 0 ? null : q1 + q2,
+          unit: baseUnit,
+        );
       }
     }
-    return merged.values.toList();
+
+    // 2) Temel birimdeki değerleri kullanıcı dostu hale getir (kg / litre)
+    final List<ShoppingItem> result = [];
+    for (final item in merged.values) {
+      String? unit = item.unit;
+      double? qty = item.quantity;
+
+      if (qty != null && unit != null) {
+        // gram -> kg
+        if (unit == 'g' && qty >= 1000) {
+          qty = qty / 1000.0;
+          unit = 'kg';
+        }
+        // ml -> litre
+        else if (unit == 'ml' && qty >= 1000) {
+          qty = qty / 1000.0;
+          unit = 'l';
+        }
+      }
+
+      result.add(item.copyWith(unit: unit, quantity: qty));
+    }
+
+    return result;
   }
 
   Future<void> removeRecipeFromList(String recipeId) async {

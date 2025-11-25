@@ -64,13 +64,26 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
+    // DEBUG: Giriş isteğini logla
+    // Not: Parolayı asla loglama!
+    // Bu loglar sadece geliştirme sürecinde yardımcı olması için.
+    // Üründe bırakacaksan debugPrint kullanıp gerektiğinde filtreleyebilirsin.
+    print('DEBUG[AuthRepository]: signInWithEmail çağrıldı -> email=$email');
+
     final cred = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password,
     );
 
+    print(
+        'DEBUG[AuthRepository]: FirebaseAuth signInWithEmailAndPassword döndü -> uid=${cred.user?.uid}, email=${cred.user?.email}');
+
     final docRef = _db.collection('users').doc(cred.user!.uid);
+    print(
+        'DEBUG[AuthRepository]: Firestore kullanıcı dokümanı okunuyor -> docId=${cred.user!.uid}');
     final snap = await docRef.get();
+    print(
+        'DEBUG[AuthRepository]: Firestore doküman var mı? -> exists=${snap.exists}');
 
     if (!snap.exists) {
       // Doküman yoksa, Firebase displayName'den isim/soyisim ayırıp minimal profil oluştur.
@@ -87,6 +100,9 @@ class AuthRepository {
         }
       }
 
+      print(
+          'DEBUG[AuthRepository]: Firestore dokümanı yok, yeni minimal profil oluşturulacak.');
+
       final appUser = AppUser(
         uid: cred.user!.uid,
         email: cred.user!.email!,
@@ -99,10 +115,15 @@ class AuthRepository {
         emailVerified: cred.user!.emailVerified,
       );
       await docRef.set(appUser.toMap(), SetOptions(merge: true));
+      print(
+          'DEBUG[AuthRepository]: Yeni kullanıcı profili Firestore\'a yazıldı -> uid=${appUser.uid}');
       return appUser;
     }
 
-    return AppUser.fromMap(snap.data()!);
+    final fromDb = AppUser.fromMap(snap.data()!);
+    print(
+        'DEBUG[AuthRepository]: Var olan kullanıcı profili Firestore\'dan yüklendi -> uid=${fromDb.uid}, email=${fromDb.email}');
+    return fromDb;
   }
 
   Future<void> signOut() => _auth.signOut();

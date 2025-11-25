@@ -40,6 +40,54 @@ class AiRecipeService {
     }
   }
 
+  /// Tarif hakkında soru-cevap
+  /// Soruyu, verilen tarifin başlığı/malzemeleri/adımları bağlamında cevaplar.
+  Future<String> askRecipeQuestion({
+    required Recipe recipe,
+    required String question,
+    String? imageUrl,
+  }) async {
+    if (question.trim().isEmpty) {
+      return 'Lütfen tarifle ilgili bir soru yazın.';
+    }
+
+    try {
+      final callable = _functions.httpsCallable('askRecipeQuestion');
+      final result = await callable.call({
+        'recipe': recipe.toMap(),
+        'question': question.trim(),
+        'imageUrl': imageUrl,
+      });
+
+      final data = result.data as Map<String, dynamic>;
+      final answer = data['answer'] as String?;
+      if (answer == null || answer.trim().isEmpty) {
+        return 'Şu anda bu tarif hakkında yanıt veremiyorum. Lütfen daha sonra tekrar deneyin.';
+      }
+      return answer.trim();
+    } catch (e) {
+      debugPrint('AI recipe QA error: $e, using fallback');
+      // Basit fallback: tarife dayalı sabit bir cevap
+      final buf = StringBuffer();
+      buf.writeln(
+        'Şu anda akıllı cevap veremiyorum ama elimdeki tarif bilgilerini paylaşabilirim:\n',
+      );
+      buf.writeln('Tarif: ${recipe.title}');
+      if (recipe.portions != null) {
+        buf.writeln('Porsiyon: ${recipe.portions}');
+      }
+      buf.writeln('\nMalzemeler:');
+      for (final ing in recipe.ingredients) {
+        buf.writeln('- $ing');
+      }
+      buf.writeln('\nAdımlar:');
+      for (var i = 0; i < recipe.steps.length; i++) {
+        buf.writeln('${i + 1}. ${recipe.steps[i]}');
+      }
+      return buf.toString();
+    }
+  }
+
   /// Fallback: Basit dönüştürme (Cloud Functions yoksa)
   Recipe _transformFallback(Recipe base, RecipeTransformType type, int? targetPortions) {
     switch (type) {
