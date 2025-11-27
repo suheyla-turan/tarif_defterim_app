@@ -1,5 +1,46 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+class IngredientGroup {
+  final String name;
+  final List<String> items;
+
+  const IngredientGroup({
+    required this.name,
+    required this.items,
+  });
+
+  IngredientGroup copyWith({String? name, List<String>? items}) {
+    return IngredientGroup(
+      name: name ?? this.name,
+      items: items ?? this.items,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'items': items,
+      };
+
+  static List<IngredientGroup> listFromDynamic(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .where((element) => element is Map)
+        .map(
+          (element) => IngredientGroup.fromMap(
+            Map<String, dynamic>.from(element as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  factory IngredientGroup.fromMap(Map<String, dynamic> map) {
+    return IngredientGroup(
+      name: (map['name'] as String? ?? '').trim(),
+      items: List<String>.from((map['items'] ?? const <String>[]) as List),
+    );
+  }
+}
+
 /// Uygulamanın temel tarif modeli
 class Recipe {
   final String id; // Firestore doc id
@@ -18,6 +59,9 @@ class Recipe {
 
   /// Malzemeler listesi (opsiyonel ama önerilir)
   final List<String> ingredients;
+
+  /// Kullanıcı isterse malzemeleri kategorileyebilir
+  final List<IngredientGroup> ingredientGroups;
 
   /// Tarif adımları (sıralı)
   final List<String> steps;
@@ -46,6 +90,7 @@ class Recipe {
     this.subType,
     this.country,
     required this.ingredients,
+    this.ingredientGroups = const [],
     required this.steps,
     required this.imageUrls,
     required this.likesCount,
@@ -63,6 +108,7 @@ class Recipe {
     String? subType,
     String? country,
     List<String>? ingredients,
+    List<IngredientGroup>? ingredientGroups,
     List<String>? steps,
     List<String>? imageUrls,
     int? likesCount,
@@ -79,6 +125,7 @@ class Recipe {
       subType: subType ?? this.subType,
       country: country ?? this.country,
       ingredients: ingredients ?? this.ingredients,
+      ingredientGroups: ingredientGroups ?? this.ingredientGroups,
       steps: steps ?? this.steps,
       imageUrls: imageUrls ?? this.imageUrls,
       likesCount: likesCount ?? this.likesCount,
@@ -97,6 +144,7 @@ class Recipe {
       'subType': subType,
       'country': country,
       'ingredients': ingredients,
+      'ingredientGroups': ingredientGroups.map((g) => g.toMap()).toList(),
       'steps': steps,
       'imageUrls': imageUrls,
       'likesCount': likesCount,
@@ -108,6 +156,7 @@ class Recipe {
 
   factory Recipe.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
+    final parsedGroups = IngredientGroup.listFromDynamic(data['ingredientGroups']);
     return Recipe(
       id: doc.id,
       ownerId: data['ownerId'] as String,
@@ -117,6 +166,7 @@ class Recipe {
       subType: data['subType'] as String?,
       country: data['country'] as String?,
       ingredients: List<String>.from((data['ingredients'] ?? const <String>[]) as List),
+      ingredientGroups: parsedGroups,
       steps: List<String>.from((data['steps'] ?? const <String>[]) as List),
       imageUrls: List<String>.from((data['imageUrls'] ?? const <String>[]) as List),
       likesCount: (data['likesCount'] ?? 0) as int,
@@ -139,6 +189,7 @@ class Recipe {
       }
     }
 
+    final parsedGroups = IngredientGroup.listFromDynamic(map['ingredientGroups']);
     return Recipe(
       id: id ?? map['id'] as String? ?? '',
       ownerId: map['ownerId'] as String,
@@ -148,6 +199,7 @@ class Recipe {
       subType: map['subType'] as String?,
       country: map['country'] as String?,
       ingredients: List<String>.from((map['ingredients'] ?? const <String>[]) as List),
+      ingredientGroups: parsedGroups,
       steps: List<String>.from((map['steps'] ?? const <String>[]) as List),
       imageUrls: List<String>.from((map['imageUrls'] ?? const <String>[]) as List),
       likesCount: (map['likesCount'] ?? 0) as int,
@@ -157,6 +209,18 @@ class Recipe {
     );
   }
 
+  List<String> get resolvedIngredients {
+    if (ingredientGroups.isEmpty) {
+      return ingredients;
+    }
+    return ingredientGroups
+        .expand((group) => group.items)
+        .where((item) => item.trim().isNotEmpty)
+        .toList(growable: false);
+  }
+
+  bool get hasIngredientGroups => ingredientGroups.isNotEmpty;
+
   static List<String> buildKeywords({
     required String title,
     String? description,
@@ -164,6 +228,7 @@ class Recipe {
     required String mainType,
     String? subType,
     List<String> ingredients = const [],
+    List<IngredientGroup> ingredientGroups = const [],
   }) {
     final pool = <String>{};
 
@@ -183,6 +248,12 @@ class Recipe {
     addTerms(subType);
     for (final ing in ingredients) {
       addTerms(ing);
+    }
+    for (final group in ingredientGroups) {
+      addTerms(group.name);
+      for (final item in group.items) {
+        addTerms(item);
+      }
     }
     return pool.toList(growable: false);
   }

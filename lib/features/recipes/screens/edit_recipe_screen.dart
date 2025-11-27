@@ -1,47 +1,90 @@
+import 'dart:io';
+
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
-import '../application/recipes_provider.dart';
 import '../../../core/providers/localization_provider.dart';
-import '../../../core/providers/auth_provider.dart' as feature_auth;
+import '../application/recipes_provider.dart';
 import '../constants/recipe_types.dart';
 import '../models/recipe.dart';
 import '../widgets/ingredient_group_form_model.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
-import 'package:firebase_storage/firebase_storage.dart';
 
-class AddRecipeScreen extends ConsumerStatefulWidget {
-  const AddRecipeScreen({super.key});
+class EditRecipeScreen extends ConsumerStatefulWidget {
+  final Recipe recipe;
+  const EditRecipeScreen({super.key, required this.recipe});
 
   @override
-  ConsumerState<AddRecipeScreen> createState() => _AddRecipeScreenState();
+  ConsumerState<EditRecipeScreen> createState() => _EditRecipeScreenState();
 }
 
-class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
+class _EditRecipeScreenState extends ConsumerState<EditRecipeScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _titleCtrl = TextEditingController();
-  final _descCtrl = TextEditingController();
-  final _countryCtrl = TextEditingController();
-  final _portionCtrl = TextEditingController(text: '1');
-  final List<TextEditingController> _ingredientCtrls = [TextEditingController()];
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _countryCtrl;
+  late final TextEditingController _portionCtrl;
+  late List<TextEditingController> _ingredientCtrls;
   final List<IngredientGroupFormModel> _ingredientGroupForms = [];
-  final List<TextEditingController> _stepCtrls = [TextEditingController()];
-  final List<File> _pickedImages = [];
-  bool _uploading = false;
+  late List<TextEditingController> _stepCtrls;
 
-  String _mainType = RecipeTypes.mainTypes.first;
+  late String _mainType;
   String? _subType;
+
+  final List<File> _newImages = [];
+  List<String> _existingImages = [];
+  bool _uploadingImages = false;
   bool _useIngredientCategories = false;
-  
+
   @override
   void initState() {
     super.initState();
-    // İlk alt türü varsayılan olarak seç
-    final subTypes = RecipeTypes.subTypesOf(_mainType);
-    if (subTypes.isNotEmpty) {
-      _subType = subTypes.first;
+    final recipe = widget.recipe;
+    _titleCtrl = TextEditingController(text: recipe.title);
+    _descCtrl = TextEditingController(text: recipe.description ?? '');
+    _countryCtrl = TextEditingController(text: recipe.country ?? '');
+    _portionCtrl = TextEditingController(text: (recipe.portions ?? 1).toString());
+    _mainType = recipe.mainType;
+    _subType = recipe.subType;
+    _existingImages = List<String>.from(recipe.imageUrls);
+    _useIngredientCategories = recipe.ingredientGroups.isNotEmpty;
+    if (_useIngredientCategories) {
+      _ingredientGroupForms.addAll(
+        recipe.ingredientGroups
+            .map(
+              (group) => IngredientGroupFormModel(
+                name: group.name,
+                ingredients: group.items.isEmpty ? [''] : group.items,
+              ),
+            )
+            .toList(),
+      );
     }
+    final seedIngredients =
+        recipe.resolvedIngredients.isEmpty ? [''] : recipe.resolvedIngredients;
+    _ingredientCtrls =
+        seedIngredients.map((e) => TextEditingController(text: e)).toList();
+    _stepCtrls =
+        (recipe.steps.isEmpty ? [''] : recipe.steps).map((e) => TextEditingController(text: e)).toList();
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _countryCtrl.dispose();
+    _portionCtrl.dispose();
+    for (final ctrl in _ingredientCtrls) {
+      ctrl.dispose();
+    }
+    for (final group in _ingredientGroupForms) {
+      group.dispose();
+    }
+    for (final ctrl in _stepCtrls) {
+      ctrl.dispose();
+    }
+    super.dispose();
   }
 
   Future<void> _pickImage() async {
@@ -67,19 +110,26 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
       ),
     );
     if (source == null) return;
-    final file = await picker.pickImage(source: source, imageQuality: 85, maxWidth: 1600);
-    if (file == null) return;
-    setState(() => _pickedImages.add(File(file.path)));
+    final picked = await picker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 1600,
+    );
+    if (picked == null) return;
+    setState(() {
+      _newImages.add(File(picked.path));
+    });
   }
 
-  Future<List<String>> _uploadAllImages(String userId) async {
-    if (_pickedImages.isEmpty) return [];
+  Future<List<String>> _uploadNewImages() async {
+    if (_newImages.isEmpty) return const [];
     final storage = FirebaseStorage.instance;
-    final List<String> urls = [];
-    for (final f in _pickedImages) {
-      final name = '${DateTime.now().millisecondsSinceEpoch}_${f.path.split('/').last}';
-      final ref = storage.ref().child('recipes/$userId/$name');
-      final task = await ref.putFile(f);
+    final urls = <String>[];
+    final ownerId = widget.recipe.ownerId;
+    for (final image in _newImages) {
+      final name = '${DateTime.now().millisecondsSinceEpoch}_${image.path.split('/').last}';
+      final ref = storage.ref().child('recipes/$ownerId/$name');
+      final task = await ref.putFile(image);
       final url = await task.ref.getDownloadURL();
       urls.add(url);
     }
@@ -172,33 +222,37 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
   Widget _buildSimpleIngredients(AppLocalizations l10n) {
     return Column(
       children: [
-        ..._ingredientCtrls.asMap().entries.map((entry) {
-          final i = entry.key;
-          final c = entry.value;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: c,
-                    decoration: InputDecoration(labelText: '${l10n.ingredient} #${i + 1}'),
+        ..._ingredientCtrls.asMap().entries.map(
+          (entry) {
+            final index = entry.key;
+            final ctrl = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: ctrl,
+                      decoration: InputDecoration(
+                        labelText: '${l10n.ingredient} #${index + 1}',
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.remove_circle_outline),
-                  onPressed: _ingredientCtrls.length > 1
-                      ? () => setState(() {
-                            final removed = _ingredientCtrls.removeAt(i);
-                            removed.dispose();
-                          })
-                      : null,
-                )
-              ],
-            ),
-          );
-        }),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: _ingredientCtrls.length > 1
+                        ? () => setState(() {
+                              final removed = _ingredientCtrls.removeAt(index);
+                              removed.dispose();
+                            })
+                        : null,
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
@@ -298,163 +352,21 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
     );
   }
 
-  Widget _buildImagePreviewSection(AppLocalizations l10n) {
-    final theme = Theme.of(context);
-    final previewCount = _pickedImages.length >= 2 ? 2 : _pickedImages.length;
-
-    Widget buildThumbnail(int index) {
-      final file = _pickedImages[index];
-      return GestureDetector(
-        onTap: () => _openImageGallery(index),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.file(
-            file,
-            width: 80,
-            height: 80,
-            fit: BoxFit.cover,
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                l10n.images,
-                style: theme.textTheme.titleMedium,
-              ),
-            ),
-            TextButton.icon(
-              onPressed: _uploading ? null : _pickImage,
-              icon: const Icon(Icons.add_a_photo_outlined),
-              label: Text(l10n.selectImage),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (_pickedImages.isEmpty)
-          OutlinedButton.icon(
-            onPressed: _uploading ? null : _pickImage,
-            icon: const Icon(Icons.photo_library_outlined),
-            label: Text(l10n.selectImage),
-          )
-        else
-          Row(
-            children: [
-              for (var i = 0; i < previewCount; i++) ...[
-                if (i > 0) const SizedBox(width: 12),
-                buildThumbnail(i),
-              ],
-              if (_pickedImages.length > 2) ...[
-                if (previewCount > 0) const SizedBox(width: 12),
-                GestureDetector(
-                  onTap: () => _openImageGallery(2),
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: theme.colorScheme.primary.withOpacity(0.4)),
-                      color: theme.colorScheme.surfaceVariant,
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.add, size: 28),
-                        Text(
-                          '+${_pickedImages.length - 2}',
-                          style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-      ],
-    );
-  }
-
-  Future<void> _openImageGallery(int initialIndex) async {
-    if (_pickedImages.isEmpty) return;
-    await showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.85),
-      builder: (ctx) {
-        final controller = PageController(
-          initialPage: initialIndex.clamp(0, _pickedImages.length - 1),
-        );
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.all(16),
-          child: Stack(
-            children: [
-              PageView.builder(
-                controller: controller,
-                itemCount: _pickedImages.length,
-                itemBuilder: (_, index) {
-                  return Center(
-                    child: InteractiveViewer(
-                      clipBehavior: Clip.none,
-                      child: Image.file(
-                        _pickedImages[index],
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: IconButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _descCtrl.dispose();
-    _countryCtrl.dispose();
-    _portionCtrl.dispose();
-    for (final c in _ingredientCtrls) c.dispose();
-    for (final group in _ingredientGroupForms) {
-      group.dispose();
-    }
-    for (final c in _stepCtrls) c.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final addState = ref.watch(addRecipeControllerProvider);
-    final addCtrl = ref.read(addRecipeControllerProvider.notifier);
     final l10n = AppLocalizations.of(context);
+    final editState = ref.watch(editRecipeControllerProvider);
+    final editCtrl = ref.read(editRecipeControllerProvider.notifier);
 
-    ref.listen(addRecipeControllerProvider, (prev, next) {
-      if (prev?.submitting == true && next.submitting == false && next.error == null) {
+    ref.listen(editRecipeControllerProvider, (prev, next) {
+      if (prev?.submitting == true && next.submitting == false && next.success) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l10n.recipeAdded)),
+            SnackBar(content: Text(l10n.recipeUpdated)),
           );
-          Navigator.pop(context);
+          Navigator.of(context).pop(true);
         }
-      }
-      if (next.error != null) {
+      } else if (next.error != null && next.error != prev?.error) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(next.error!)),
         );
@@ -465,7 +377,7 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.addRecipe),
+        title: Text(l10n.editRecipe),
       ),
       body: SafeArea(
         child: Form(
@@ -473,43 +385,128 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              // Görsel seçimi
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  ..._existingImages.map(
+                    (url) => Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            url,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: -6,
+                          right: -6,
+                          child: IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black54,
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(24, 24),
+                            ),
+                            icon: const Icon(Icons.close, size: 16, color: Colors.white),
+                            onPressed: () {
+                              setState(() => _existingImages.remove(url));
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ..._newImages.asMap().entries.map(
+                    (entry) => Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            entry.value,
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        Positioned(
+                          top: -6,
+                          right: -6,
+                          child: IconButton(
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black54,
+                              padding: EdgeInsets.zero,
+                              minimumSize: const Size(24, 24),
+                            ),
+                            icon: const Icon(Icons.close, size: 16, color: Colors.white),
+                            onPressed: () {
+                              setState(() => _newImages.removeAt(entry.key));
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    onTap: (_uploadingImages || editState.submitting) ? null : _pickImage,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Theme.of(context).dividerColor),
+                      ),
+                      child: const Icon(Icons.add_a_photo_outlined),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _titleCtrl,
                 decoration: InputDecoration(labelText: l10n.title),
-                validator: (v) => (v == null || v.trim().isEmpty) ? l10n.required : null,
+                validator: (value) =>
+                    (value == null || value.trim().isEmpty) ? l10n.required : null,
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _mainType,
                 items: RecipeTypes.mainTypes
-                    .map((e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(_getMainTypeDisplayName(e, l10n)),
-                        ))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(_getMainTypeDisplayName(e, l10n)),
+                      ),
+                    )
                     .toList(),
                 decoration: InputDecoration(labelText: l10n.type),
-                validator: (v) => v == null ? l10n.required : null,
-                onChanged: (v) => setState(() {
-                  _mainType = v!;
-                  // Yeni ana tür seçildiğinde ilk alt türü otomatik seç
-                  final newSubTypes = RecipeTypes.subTypesOf(_mainType);
-                  _subType = newSubTypes.isNotEmpty ? newSubTypes.first : null;
-                }),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() {
+                    _mainType = value;
+                    final nextSubTypes = RecipeTypes.subTypesOf(_mainType);
+                    _subType = nextSubTypes.isNotEmpty ? nextSubTypes.first : null;
+                  });
+                },
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _subType,
                 items: subTypes
-                    .map((e) => DropdownMenuItem(
-                          value: e,
-                          child: Text(_getSubTypeDisplayName(e, l10n)),
-                        ))
+                    .map(
+                      (e) => DropdownMenuItem(
+                        value: e,
+                        child: Text(_getSubTypeDisplayName(e, l10n)),
+                      ),
+                    )
                     .toList(),
                 decoration: InputDecoration(labelText: l10n.subType),
-                validator: (v) => v == null ? l10n.required : null,
-                onChanged: (v) => setState(() => _subType = v),
+                onChanged: (value) => setState(() => _subType = value),
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -519,12 +516,12 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                   labelText: l10n.portionField,
                   hintText: l10n.portionExample,
                 ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
                     return l10n.required;
                   }
-                  final portion = int.tryParse(v.trim());
-                  if (portion == null || portion < 1) {
+                  final parsed = int.tryParse(value.trim());
+                  if (parsed == null || parsed < 1) {
                     return l10n.validNumber;
                   }
                   return null;
@@ -539,7 +536,8 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
               TextFormField(
                 controller: _descCtrl,
                 maxLines: 3,
-                decoration: InputDecoration(labelText: '${l10n.description} (${l10n.optional})'),
+                decoration:
+                    InputDecoration(labelText: '${l10n.description} (${l10n.optional})'),
               ),
               const SizedBox(height: 16),
               Text(l10n.ingredients, style: Theme.of(context).textTheme.titleMedium),
@@ -556,36 +554,38 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                 _buildCategorizedIngredients(l10n)
               else
                 _buildSimpleIngredients(l10n),
-              const SizedBox(height: 12),
-              _buildImagePreviewSection(l10n),
               const SizedBox(height: 16),
               Text(l10n.steps, style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
-              ..._stepCtrls.asMap().entries.map((entry) {
-                final i = entry.key;
-                final c = entry.value;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: c,
-                          decoration: InputDecoration(labelText: '${l10n.step} #${i + 1}'),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? l10n.required : null,
+              ..._stepCtrls.asMap().entries.map(
+                (entry) {
+                  final index = entry.key;
+                  final ctrl = entry.value;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: ctrl,
+                            decoration:
+                                InputDecoration(labelText: '${l10n.step} #${index + 1}'),
+                            validator: (value) =>
+                                (value == null || value.trim().isEmpty) ? l10n.required : null,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.remove_circle_outline),
-                        onPressed: _stepCtrls.length > 1
-                            ? () => setState(() => _stepCtrls.removeAt(i))
-                            : null,
-                      )
-                    ],
-                  ),
-                );
-              }),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: _stepCtrls.length > 1
+                              ? () => setState(() => _stepCtrls.removeAt(index))
+                              : null,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -594,34 +594,29 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                   label: Text(l10n.addStep),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               FilledButton.icon(
-                onPressed: addState.submitting
+                onPressed: (editState.submitting || _uploadingImages)
                     ? null
                     : () async {
                         if (!_formKey.currentState!.validate()) return;
-                        final userId = ref.read(feature_auth.firebaseAuthStateProvider).value?.uid;
-                        if (userId == null) {
+                        setState(() => _uploadingImages = true);
+                        List<String> uploadedUrls = const [];
+                        try {
+                          uploadedUrls = await _uploadNewImages();
+                        } catch (_) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(l10n.sessionRequired)),
+                              SnackBar(content: Text(l10n.imagesUploadFailed)),
                             );
                           }
-                          return;
+                        } finally {
+                          if (mounted) setState(() => _uploadingImages = false);
                         }
-                      setState(() => _uploading = true);
-                      List<String> imageUrls = const [];
-                      try {
-                        imageUrls = await _uploadAllImages(userId);
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(l10n.imagesUploadFailed)),
-                          );
-                        }
-                      } finally {
-                        if (mounted) setState(() => _uploading = false);
-                      }
+                        final combinedImages = [
+                          ..._existingImages,
+                          ...uploadedUrls,
+                        ];
                         final categorizedGroups =
                             _useIngredientCategories ? _collectIngredientGroups(l10n) : const <IngredientGroup>[];
                         if (_useIngredientCategories && categorizedGroups.isEmpty) {
@@ -643,8 +638,8 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                             .where((e) => e.isNotEmpty)
                             .toList();
                         final portionText = _portionCtrl.text.trim();
-                        final portions = int.tryParse(portionText);
-                        if (portions == null || portions < 1) {
+                        final portion = int.tryParse(portionText);
+                        if (portion == null || portion < 1) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text(l10n.validNumber)),
@@ -652,22 +647,29 @@ class _AddRecipeScreenState extends ConsumerState<AddRecipeScreen> {
                           }
                           return;
                         }
-                        await addCtrl.submit(
-                          title: _titleCtrl.text,
-                          description: _descCtrl.text.isEmpty ? null : _descCtrl.text,
-                          mainType: _mainType,
-                          subType: _subType,
-                          country: _countryCtrl.text.isEmpty ? null : _countryCtrl.text,
-                          ingredients: ingredients,
-                          steps: steps,
-                          imageUrls: imageUrls,
-                          portions: portions,
-                          ingredientGroups: categorizedGroups,
+                        await editCtrl.submit(
+                          recipe: widget.recipe.copyWith(
+                            title: _titleCtrl.text.trim(),
+                            description:
+                                _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+                            mainType: _mainType,
+                            subType: _subType,
+                            country: _countryCtrl.text.trim().isEmpty
+                                ? null
+                                : _countryCtrl.text.trim(),
+                            ingredients: ingredients,
+                            steps: steps,
+                            imageUrls: combinedImages,
+                            portions: portion,
+                            ingredientGroups: categorizedGroups,
+                          ),
                         );
                       },
                 icon: const Icon(Icons.save_outlined),
-                label: Text(addState.submitting || _uploading ? l10n.loading : l10n.save),
-              )
+                label: Text(
+                  (editState.submitting || _uploadingImages) ? l10n.saving : l10n.save,
+                ),
+              ),
             ],
           ),
         ),

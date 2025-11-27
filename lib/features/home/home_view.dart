@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../core/providers/localization_provider.dart';
 import '../recipes/screens/my_recipes_screen.dart';
-import '../recipes/screens/search_screen.dart';
-import '../shopping/screens/shopping_list_screen.dart';
 import '../profile/screens/profile_screen.dart';
 import '../settings/screens/settings_screen.dart';
 import '../recipes/screens/favorites_screen.dart';
@@ -36,9 +34,11 @@ class HomeView extends ConsumerWidget {
     final greetingText = '${l10n.welcome}, $userName';
 
     return Scaffold(
-      endDrawer: _MenuDrawer(onLogout: () {
+      endDrawer: _MenuDrawer(onLogout: () async {
         Navigator.of(context).pop();
-        ref.read(authControllerProvider.notifier).signOut();
+        await ref.read(authControllerProvider.notifier).signOut();
+        if (!context.mounted) return;
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
       }),
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -56,15 +56,6 @@ class HomeView extends ConsumerWidget {
           style: const TextStyle(letterSpacing: 1.2, fontWeight: FontWeight.w800),
         ),
         actions: [
-          IconButton(
-            tooltip: l10n.search,
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SearchScreen()),
-              );
-            },
-          ),
           IconButton(
             tooltip: l10n.settings,
             icon: const Icon(Icons.settings),
@@ -264,16 +255,6 @@ class HomeView extends ConsumerWidget {
                           },
                         ),
                         _CategoryCard(
-                          title: l10n.shoppingList,
-                          icon: Icons.shopping_cart,
-                          color: Colors.green,
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const ShoppingListScreen()),
-                            );
-                          },
-                        ),
-                        _CategoryCard(
                           title: l10n.myRecipes,
                           icon: Icons.menu_book,
                           color: Colors.purple,
@@ -395,16 +376,6 @@ class _MenuDrawer extends StatelessWidget {
                 Navigator.pop(context);
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const MyRecipesScreen()),
-                );
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(l10n.shoppingList, style: const TextStyle(fontWeight: FontWeight.w700)),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ShoppingListScreen()),
                 );
               },
             ),

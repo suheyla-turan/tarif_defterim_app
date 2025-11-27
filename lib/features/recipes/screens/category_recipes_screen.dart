@@ -4,7 +4,9 @@ import '../models/recipe.dart';
 import 'recipe_detail_screen.dart';
 import '../application/recipes_provider.dart';
 import '../../../core/providers/localization_provider.dart';
+import '../../../core/providers/auth_provider.dart' as feature_auth;
 import '../constants/recipe_types.dart';
+import '../utils/recipe_type_labels.dart';
 
 class CategoryRecipesScreen extends ConsumerStatefulWidget {
   final String? mainType;
@@ -39,26 +41,47 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
     IconData icon;
     Color color;
     
-    switch (widget.mainType) {
-      case 'yemek':
-        title = l10n.meals;
-        icon = Icons.room_service;
-        color = Colors.orange;
-        break;
-      case 'tatli':
-        title = l10n.desserts;
-        icon = Icons.cake;
-        color = Colors.pink;
-        break;
-      case 'icecek':
-        title = l10n.drinks;
-        icon = Icons.local_drink;
-        color = Colors.blue;
-        break;
-      default:
-        title = l10n.allRecipes;
-        icon = Icons.menu_book;
-        color = Colors.green;
+    // Alt kategori seçilmişse alt kategori bilgilerini kullan
+    if (widget.subType != null) {
+      title = RecipeTypeLabels.subType(l10n, widget.subType!);
+      icon = _getSubTypeIcon(widget.subType!);
+      // Ana kategori rengini kullan
+      switch (widget.mainType) {
+        case 'yemek':
+          color = Colors.orange;
+          break;
+        case 'tatli':
+          color = Colors.pink;
+          break;
+        case 'icecek':
+          color = Colors.blue;
+          break;
+        default:
+          color = Colors.green;
+      }
+    } else {
+      // Ana kategori bilgilerini kullan
+      switch (widget.mainType) {
+        case 'yemek':
+          title = l10n.meals;
+          icon = Icons.room_service;
+          color = Colors.orange;
+          break;
+        case 'tatli':
+          title = l10n.desserts;
+          icon = Icons.cake;
+          color = Colors.pink;
+          break;
+        case 'icecek':
+          title = l10n.drinks;
+          icon = Icons.local_drink;
+          color = Colors.blue;
+          break;
+        default:
+          title = l10n.allRecipes;
+          icon = Icons.menu_book;
+          color = Colors.green;
+      }
     }
 
     // Alt kategorileri al
@@ -230,7 +253,7 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
                     childAspectRatio: 1.2,
                     children: subTypes.map((subType) {
                       return _SubCategoryCard(
-                        title: _getSubTypeDisplayName(subType, context),
+                        title: RecipeTypeLabels.subType(l10n, subType),
                         icon: _getSubTypeIcon(subType),
                         color: color,
                         onTap: () => _navigateToSubCategory(context, widget.mainType!, subType),
@@ -511,8 +534,10 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
     Color color,
     AppLocalizations l10n,
   ) {
-    // Yemek kategorisi için arka plan ikonları ekle
+    // Her ana kategorinin kendi arka plan dokusunu alt kategoride de göster
     final bool isMealsCategory = widget.mainType == 'yemek';
+    final bool isDessertsCategory = widget.mainType == 'tatli';
+    final bool isDrinksCategory = widget.mainType == 'icecek';
     
     return Container(
       decoration: BoxDecoration(
@@ -529,8 +554,10 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
       ),
       child: Stack(
         children: [
-          // Arka plan icon'ları (sadece yemek kategorisi için)
+          // Arka plan icon'ları - ana kategori görünümü ile aynı
           if (isMealsCategory) ..._buildBackgroundIcons(context, [], color),
+          if (isDessertsCategory) ..._buildDessertsBackgroundIcons(context, [], color),
+          if (isDrinksCategory) ..._buildDrinksBackgroundIcons(context, color),
           // İçerik - AppBar yüksekliği kadar üstten padding ekle
           Padding(
             padding: EdgeInsets.only(
@@ -575,40 +602,6 @@ class _CategoryRecipesScreenState extends ConsumerState<CategoryRecipesScreen> {
         ],
       ),
     );
-  }
-
-  String _getSubTypeDisplayName(String subType, BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    switch (subType) {
-      case 'corba':
-        return l10n.soup;
-      case 'ana_yemek':
-        return l10n.mainDish;
-      case 'meze':
-        return l10n.appetizer;
-      case 'salata':
-        return l10n.salad;
-      case 'hamur_isi':
-        return l10n.pastry;
-      case 'kahvaltilik':
-        return l10n.isTurkish ? 'Kahvaltılık' : 'Breakfast dishes';
-      case 'sutlu':
-        return l10n.milky;
-      case 'serbetli':
-        return l10n.syrupy;
-      case 'kek_pasta':
-        return l10n.cake;
-      case 'kurabiye':
-        return l10n.cookie;
-      case 'sicak':
-        return l10n.hot;
-      case 'soguk':
-        return l10n.cold;
-      case 'smoothie':
-        return l10n.smoothie;
-      default:
-        return subType;
-    }
   }
 
   void _navigateToSubCategory(BuildContext context, String mainType, String subType) {
@@ -764,7 +757,7 @@ class _RecipesList extends ConsumerWidget {
   }
 }
 
-class _RecipeCard extends StatelessWidget {
+class _RecipeCard extends ConsumerWidget {
   final Recipe recipe;
   final VoidCallback onTap;
 
@@ -774,7 +767,17 @@ class _RecipeCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final repo = ref.watch(recipesRepositoryProvider);
+    final authState = ref.watch(feature_auth.authControllerProvider);
+    final firebaseUser = ref.watch(feature_auth.firebaseAuthStateProvider).value;
+    final userId = authState.user?.uid ?? firebaseUser?.uid;
+    final recipeStream = repo.watchRecipeById(recipe.id);
+    final likedStream = (userId == null)
+        ? const Stream<bool>.empty()
+        : repo.watchUserLiked(recipeId: recipe.id, userId: userId);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 2,
@@ -788,25 +791,67 @@ class _RecipeCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Başlık ve beğeni sayısı
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      recipe.title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  if (recipe.likesCount > 0) ...[
-                    Icon(Icons.favorite, size: 16, color: Colors.red[300]),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${recipe.likesCount}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ],
+              StreamBuilder<Recipe>(
+                stream: recipeStream,
+                builder: (context, recipeSnap) {
+                  final currentRecipe = recipeSnap.data ?? recipe;
+                  return StreamBuilder<bool>(
+                    stream: likedStream,
+                    builder: (context, likedSnap) {
+                      final liked = likedSnap.data == true;
+                      final currentUserId = userId;
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              currentRecipe.title,
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          // Beğeni butonu ve sayısı
+                          if (currentUserId != null) ...[
+                            IconButton(
+                              icon: Icon(
+                                liked ? Icons.favorite : Icons.favorite_border,
+                                size: 20,
+                                color: liked ? Colors.red : Colors.grey[600],
+                              ),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () async {
+                                try {
+                                  await repo.setUserLike(
+                                    recipeId: currentRecipe.id,
+                                    userId: currentUserId,
+                                    like: !liked,
+                                  );
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Beğeni işlemi başarısız: ${e.toString()}'),
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                          if (currentRecipe.likesCount > 0 || userId != null) ...[
+                            Text(
+                              '${currentRecipe.likesCount}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+                },
               ),
               
               if (recipe.description != null && recipe.description!.isNotEmpty) ...[
@@ -829,12 +874,12 @@ class _RecipeCard extends StatelessWidget {
                 runSpacing: 6,
                 children: [
                   _CategoryChip(
-                    label: recipe.mainType,
+                    label: RecipeTypeLabels.mainType(l10n, recipe.mainType),
                     color: _getCategoryColor(recipe.mainType),
                   ),
                   if (recipe.subType != null)
                     _CategoryChip(
-                      label: recipe.subType!,
+                      label: RecipeTypeLabels.subType(l10n, recipe.subType!),
                       color: Colors.grey,
                     ),
                   if (recipe.country != null)
@@ -878,28 +923,35 @@ class _RecipeCard extends StatelessWidget {
               const SizedBox(height: 8),
               
               // Alt bilgi
-              Row(
-                children: [
-                  Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatDate(recipe.createdAt),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
-                    ),
-                  ),
-                  const Spacer(),
-                  if (recipe.ingredients.isNotEmpty) ...[
-                    Icon(Icons.list, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${recipe.ingredients.length} malzeme',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
+              StreamBuilder<Recipe>(
+                stream: recipeStream,
+                builder: (context, recipeSnap) {
+                  final currentRecipe = recipeSnap.data ?? recipe;
+                  final ingredientCount = currentRecipe.resolvedIngredients.length;
+                  return Row(
+                    children: [
+                      Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatDate(currentRecipe.createdAt),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[600],
+                        ),
                       ),
-                    ),
-                  ],
-                ],
+                      const Spacer(),
+                      if (ingredientCount > 0) ...[
+                        Icon(Icons.list, size: 16, color: Colors.grey[600]),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$ingredientCount malzeme',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
               ),
             ],
           ),

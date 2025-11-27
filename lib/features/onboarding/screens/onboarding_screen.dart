@@ -15,6 +15,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
     with TickerProviderStateMixin {
+  static const int _pageCount = 4;
   final PageController _controller = PageController();
   int _currentPage = 0;
   late AnimationController _fadeController;
@@ -79,7 +80,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
   }
 
   void _nextPage() {
-    if (_currentPage < 4) {
+    if (_currentPage < _pageCount - 1) {
       _controller.nextPage(
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
@@ -168,18 +169,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
                     _OnboardingPage(
                       fadeAnimation: _fadeAnimation,
                       slideAnimation: _slideAnimation,
-                      icon: Icons.shopping_cart,
-                      iconColor: Colors.green,
-                      title: l10n.onboardingShopping,
-                      description: l10n.onboardingShoppingDesc,
-                      gradientColors: [
-                        Colors.green[400]!,
-                        Colors.green[600]!,
-                      ],
-                    ),
-                    _OnboardingPage(
-                      fadeAnimation: _fadeAnimation,
-                      slideAnimation: _slideAnimation,
                       icon: Icons.mic,
                       iconColor: Colors.blue,
                       title: l10n.onboardingAI,
@@ -210,7 +199,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
                 padding: const EdgeInsets.symmetric(vertical: 20),
                 child: SmoothPageIndicator(
                   controller: _controller,
-                  count: 5,
+                  count: _pageCount,
                   effect: ExpandingDotsEffect(
                     activeDotColor: Colors.orange,
                     dotColor: Colors.grey.withOpacity(0.4),
@@ -241,7 +230,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
                       )
                     else
                       const SizedBox.shrink(),
-                    _currentPage == 4
+                    _currentPage == _pageCount - 1
                         ? Expanded(
                             child: FilledButton.icon(
                               onPressed: _finishOnboarding,

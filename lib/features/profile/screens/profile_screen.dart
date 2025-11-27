@@ -139,7 +139,8 @@ class ProfileScreen extends ConsumerWidget {
                               if (confirm == true && context.mounted) {
                                 await authCtrl.signOut();
                                 if (context.mounted) {
-                                  Navigator.of(context).pop();
+                                  Navigator.of(context)
+                                      .pushNamedAndRemoveUntil('/login', (route) => false);
                                 }
                               }
                             },

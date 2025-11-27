@@ -7,11 +7,12 @@ import '../application/recipes_provider.dart';
 import '../../../core/providers/auth_provider.dart' as feature_auth;
 import '../../../core/providers/localization_provider.dart';
 import '../models/recipe.dart';
-import '../../shopping/application/shopping_provider.dart';
+import '../utils/recipe_type_labels.dart';
 import '../../ai/application/ai_recipe_service.dart' as ai;
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'edit_recipe_screen.dart';
 
 class RecipeDetailScreen extends ConsumerStatefulWidget {
   final Recipe recipe;
@@ -417,118 +418,160 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
     super.dispose();
   }
 
+  BoxDecoration _buildDetailBackground(Recipe recipe, BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final accent = _accentColorForType(recipe.mainType);
+    final softAccent = Color.lerp(surface, accent, 0.18)!;
+    final subtleSurface = Color.lerp(surface, Colors.white, 0.08)!;
+    return BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          softAccent,
+          subtleSurface,
+          surface,
+        ],
+        stops: const [0.0, 0.35, 1.0],
+      ),
+    );
+  }
+
+  Color _accentColorForType(String mainType) {
+    switch (mainType) {
+      case 'tatli':
+        return Colors.pinkAccent;
+      case 'icecek':
+        return Colors.lightBlueAccent;
+      case 'yemek':
+        return Colors.orangeAccent;
+      default:
+        return Colors.teal;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final repo = ref.watch(recipesRepositoryProvider);
-    final user = ref.watch(feature_auth.authControllerProvider).user;
+    final authState = ref.watch(feature_auth.authControllerProvider);
+    final firebaseUser = ref.watch(feature_auth.firebaseAuthStateProvider).value;
+    final userId = authState.user?.uid ?? firebaseUser?.uid;
     final l10n = AppLocalizations.of(context);
-    final likedStream = (user == null)
+    final mediaQuery = MediaQuery.of(context);
+    final double contentTopPadding = mediaQuery.padding.top + kToolbarHeight + 16;
+    final likedStream = (userId == null)
         ? const Stream<bool>.empty()
-        : repo.watchUserLiked(recipeId: widget.recipe.id, userId: user.uid);
+        : repo.watchUserLiked(recipeId: widget.recipe.id, userId: userId);
     final recipeStream = repo.watchRecipeById(widget.recipe.id);
-    final shoppingCtrl = ref.read(shoppingControllerProvider.notifier);
 
     return StreamBuilder<Recipe>(
       stream: recipeStream,
       builder: (context, recipeSnap) {
         final currentRecipe = recipeSnap.data ?? widget.recipe;
-        return StreamBuilder<bool>(
-          stream: likedStream,
-          builder: (context, likedSnap) {
-            final liked = likedSnap.data == true;
-            return Scaffold(
-          appBar: AppBar(
-            title: Text(currentRecipe.title),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            actions: [
-              IconButton(
-                tooltip: l10n.addToShoppingList,
-                icon: const Icon(Icons.add_shopping_cart_outlined),
-                onPressed: () async {
-                  await shoppingCtrl.addRecipeToList(currentRecipe);
-                  if (!mounted) return;
-                  
-                  // State'i kontrol et
-                  final state = ref.read(shoppingControllerProvider);
-                  if (state.hasError) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Hata: ${state.error}'),
-                        backgroundColor: Colors.red,
+        final decoration = _buildDetailBackground(currentRecipe, context);
+        return DecoratedBox(
+          decoration: decoration,
+          child: StreamBuilder<bool>(
+            stream: likedStream,
+            builder: (context, likedSnap) {
+              final liked = likedSnap.data == true;
+              return Scaffold(
+                extendBodyBehindAppBar: true,
+                backgroundColor: Colors.transparent,
+                appBar: AppBar(
+                  title: Text(currentRecipe.title),
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  surfaceTintColor: Colors.transparent,
+                  scrolledUnderElevation: 0,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  actions: [
+                    if (userId != null && userId == currentRecipe.ownerId)
+                      IconButton(
+                        tooltip: l10n.edit,
+                        icon: const Icon(Icons.edit_outlined),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => EditRecipeScreen(recipe: currentRecipe),
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.addedToShoppingList)),
-                    );
-                  }
-                },
-              ),
-              IconButton(
-                tooltip: liked ? l10n.unlike : l10n.like,
-                icon: Icon(liked ? Icons.favorite : Icons.favorite_border),
-                onPressed: user == null
-                    ? null
-                    : () async {
-                        await repo.setUserLike(
-                          recipeId: currentRecipe.id,
-                          userId: user.uid,
-                          like: !liked,
-                        );
-                      },
-              ),
-              IconButton(
-                tooltip: l10n.isTurkish ? 'Tarif AI sohbeti' : 'Recipe AI chat',
-                icon: const Icon(Icons.smart_toy_outlined),
-                onPressed: () => _openRecipeAiChat(currentRecipe),
-              ),
-            ],
-          ),
-          floatingActionButton: _sttAvailable
-              ? FloatingActionButton.extended(
-                  heroTag: 'cirak',
-                  onPressed: () {
-                    final l10n = AppLocalizations.of(context);
-                    if (!_isContinuousListeningEnabled || !_stt.isListening) {
-                      // Dinleme modunu başlat - bir kez basınca sürekli dinlemeye başla
-                      _startContinuousListening();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(l10n.isTurkish 
-                              ? 'Çırak aktif! "Çırak başla", "Çırak dur", "Çırak devam et" komutlarını kullanabilirsiniz.' 
-                              : 'Assistant active! Use "Assistant start", "Assistant stop", "Assistant continue" commands.'),
-                          duration: const Duration(seconds: 3),
+                    IconButton(
+                      tooltip: liked ? l10n.unlike : l10n.like,
+                      icon: Icon(
+                        liked ? Icons.favorite : Icons.favorite_border,
+                        color: liked ? Colors.red : null,
+                      ),
+                      onPressed: userId == null
+                          ? null
+                          : () async {
+                              await repo.setUserLike(
+                                recipeId: currentRecipe.id,
+                                userId: userId,
+                                like: !liked,
+                              );
+                            },
+                    ),
+                    IconButton(
+                      tooltip: l10n.isTurkish ? 'Tarif AI sohbeti' : 'Recipe AI chat',
+                      icon: const Icon(Icons.smart_toy_outlined),
+                      onPressed: () => _openRecipeAiChat(currentRecipe),
+                    ),
+                  ],
+                ),
+                floatingActionButton: _sttAvailable
+                    ? FloatingActionButton.extended(
+                        heroTag: 'cirak',
+                        onPressed: () {
+                          final l10n = AppLocalizations.of(context);
+                          if (!_isContinuousListeningEnabled || !_stt.isListening) {
+                            _startContinuousListening();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  l10n.isTurkish
+                                      ? 'Çırak aktif! "Çırak başla", "Çırak dur", "Çırak devam et" komutlarını kullanabilirsiniz.'
+                                      : 'Assistant active! Use "Assistant start", "Assistant stop", "Assistant continue" commands.',
+                                ),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          } else {
+                            _stopListening();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  l10n.isTurkish
+                                      ? 'Çırak durduruldu. Tekrar başlatmak için butona basın.'
+                                      : 'Assistant stopped. Press the button to start again.',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                        icon: Icon(
+                          _stt.isListening
+                              ? (_isReadingAllSteps ? Icons.volume_up : Icons.mic)
+                              : Icons.mic_none,
                         ),
-                      );
-                    } else {
-                      // Tekrar basınca dinlemeyi durdur
-                      _stopListening();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(l10n.isTurkish 
-                              ? 'Çırak durduruldu. Tekrar başlatmak için butona basın.' 
-                              : 'Assistant stopped. Press the button to start again.'),
-                          duration: const Duration(seconds: 2),
+                        label: Text(
+                          _stt.isListening
+                              ? (_isReadingAllSteps
+                                  ? (AppLocalizations.of(context).isTurkish ? 'Okuyor...' : 'Reading...')
+                                  : AppLocalizations.of(context).cirakListening)
+                              : AppLocalizations.of(context).cirak,
                         ),
-                      );
-                    }
-                  },
-                  icon: Icon(_stt.isListening 
-                      ? (_isReadingAllSteps ? Icons.volume_up : Icons.mic) 
-                      : Icons.mic_none),
-                  label: Text(_stt.isListening 
-                      ? (_isReadingAllSteps 
-                          ? (AppLocalizations.of(context).isTurkish ? 'Okuyor...' : 'Reading...')
-                          : AppLocalizations.of(context).cirakListening) 
-                      : AppLocalizations.of(context).cirak),
-                )
-              : null,
-          body: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
+                      )
+                    : null,
+                body: ListView(
+                  padding: EdgeInsets.fromLTRB(16, contentTopPadding, 16, 32),
+                  children: [
               if (currentRecipe.imageUrls.isNotEmpty) ...[
                 SizedBox(
                   height: 200,
@@ -563,16 +606,22 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               ],
               Row(
                 children: [
-                  Text('${AppLocalizations.of(context).type}: ', style: Theme.of(context).textTheme.titleMedium),
-                  Text(currentRecipe.mainType, style: Theme.of(context).textTheme.bodyLarge),
+                  Text('${l10n.type}: ', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    RecipeTypeLabels.mainType(l10n, currentRecipe.mainType),
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
                 ],
               ),
               if (currentRecipe.subType != null) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    Text('${AppLocalizations.of(context).subType}: ', style: Theme.of(context).textTheme.titleMedium),
-                    Text(currentRecipe.subType!, style: Theme.of(context).textTheme.bodyLarge),
+                    Text('${l10n.subType}: ', style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      RecipeTypeLabels.subType(l10n, currentRecipe.subType!),
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
                   ],
                 ),
               ],
@@ -583,6 +632,18 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                   Text('${currentRecipe.likesCount}', style: Theme.of(context).textTheme.bodyLarge),
                 ],
               ),
+              if (currentRecipe.portions != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text('${AppLocalizations.of(context).portion}: ', style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      '${currentRecipe.portions}',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
+              ],
               if (currentRecipe.description != null && currentRecipe.description!.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Text(AppLocalizations.of(context).description, style: Theme.of(context).textTheme.titleMedium),
@@ -592,11 +653,36 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               const SizedBox(height: 16),
               Text(AppLocalizations.of(context).ingredients, style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 8),
-              ...widget.recipe.ingredients.map((e) => ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.check_circle_outline),
-                    title: Text(e),
-                  )),
+              if (currentRecipe.ingredientGroups.isNotEmpty) ...[
+                ...currentRecipe.ingredientGroups.map(
+                  (group) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.name.isEmpty ? l10n.uncategorizedIngredients : group.name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        ...group.items.map(
+                          (item) => ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.check_circle_outline),
+                            title: Text(item),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else ...[
+                ...currentRecipe.resolvedIngredients.map((e) => ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.check_circle_outline),
+                      title: Text(e),
+                    )),
+              ],
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -625,9 +711,10 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               const SizedBox(height: 100),
             ],
           ),
-            );
-          },
         );
+      },
+    ),
+  );
       },
     );
   }
@@ -683,7 +770,10 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
               ),
               child: StatefulBuilder(
                 builder: (ctx, setModalState) {
-                  Future<void> runTransform(ai.RecipeTransformType type) async {
+                  Future<void> runTransform(
+                    ai.RecipeTransformType type, {
+                    int? targetPortions,
+                  }) async {
                     setModalState(() {
                       isLoading = true;
                       errorText = null;
@@ -694,6 +784,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                       final res = await service.transformRecipe(
                         base: recipe,
                         type: type,
+                        targetPortions: targetPortions,
                       );
                       setModalState(() {
                         transformedRecipe = res;
@@ -734,12 +825,30 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                         lower.contains('diyet hale') ||
                         lower.contains("diyete çevir") ||
                         lower.contains('diyet olsun');
+                    int? requestedPortions;
+                    final wantsPortion = lower.contains('porsiyon') ||
+                        lower.contains('kişilik') ||
+                        lower.contains('servis');
+                    if (wantsPortion) {
+                      final numberMatch = RegExp(r'(\d+)\s*(?:kişilik|porsiyon)?')
+                          .firstMatch(lower);
+                      if (numberMatch != null) {
+                        requestedPortions = int.tryParse(numberMatch.group(1)!);
+                      }
+                    }
                     if (wantsVegan) {
                       await runTransform(ai.RecipeTransformType.vegan);
                       return;
                     }
                     if (wantsDiet) {
                       await runTransform(ai.RecipeTransformType.diet);
+                      return;
+                    }
+                    if (wantsPortion && requestedPortions != null) {
+                      await runTransform(
+                        ai.RecipeTransformType.portion,
+                        targetPortions: requestedPortions,
+                      );
                       return;
                     }
                     setModalState(() {
@@ -805,10 +914,10 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                       });
                       return;
                     }
-                    final q = l10n.isTurkish
-                        ? '${recipe.title} tarifini $val kişilik olacak şekilde porsiyonla ve malzemeleri/adımları buna göre güncelle.'
-                        : 'Scale the recipe "${recipe.title}" to serve $val people and update ingredients/steps accordingly.';
-                    await sendQuestion(q);
+                    await runTransform(
+                      ai.RecipeTransformType.portion,
+                      targetPortions: val,
+                    );
                   }
 
                   Future<void> pickImage() async {
@@ -1017,7 +1126,7 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                             const SizedBox(height: 4),
-                            ...transformedRecipe!.ingredients.map(
+                            ...transformedRecipe!.resolvedIngredients.map(
                               (ing) => Text('• $ing',
                                   style: Theme.of(context).textTheme.bodyMedium),
                             ),

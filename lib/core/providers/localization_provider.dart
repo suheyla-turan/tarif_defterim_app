@@ -23,7 +23,6 @@ class AppLocalizations {
   String get desserts => isTurkish ? 'Tatlılar' : 'Desserts';
   String get drinks => isTurkish ? 'İçecekler' : 'Drinks';
   String get favorites => isTurkish ? 'Beğendiklerim' : 'My Favorites';
-  String get shoppingList => isTurkish ? 'Alışveriş Listem' : 'My Shopping List';
   String get myRecipes => isTurkish ? 'Tariflerim' : 'My Recipes';
 
   // Genel
@@ -71,23 +70,23 @@ class AppLocalizations {
   // FAQ
   String get faqQuestion1 => isTurkish ? 'Uygulamayı nasıl kullanabilirim?' : 'How can I use the app?';
   String get faqAnswer1 => isTurkish 
-      ? 'Uygulamayı kullanmak için önce kayıt olmanız gerekiyor. Kayıt olduktan sonra tarif ekleyebilir, mevcut tarifleri görüntüleyebilir, favorilerinize ekleyebilir ve alışveriş listesi oluşturabilirsiniz.'
-      : 'To use the app, you first need to register. After registering, you can add recipes, view existing recipes, add them to your favorites, and create shopping lists.';
+      ? 'Uygulamayı kullanmak için önce kayıt olmanız gerekiyor. Kayıt olduktan sonra tarif ekleyebilir, mevcut tarifleri görüntüleyebilir ve favorilerinize ekleyebilirsiniz.'
+      : 'To use the app, you first need to register. After registering, you can add recipes, view existing recipes, and add them to your favorites.';
   
   String get faqQuestion2 => isTurkish ? 'Tarif nasıl eklerim?' : 'How do I add a recipe?';
   String get faqAnswer2 => isTurkish
       ? 'Ana sayfadan "Tariflerim" bölümüne gidin ve "Yeni Tarif" butonuna tıklayın. Tarif bilgilerini doldurun, malzemeleri ve adımları ekleyin, görsel yükleyin ve kaydedin.'
       : 'Go to "My Recipes" from the home page and click the "New Recipe" button. Fill in the recipe information, add ingredients and steps, upload images, and save.';
   
-  String get faqQuestion3 => isTurkish ? 'Alışveriş listesi nasıl oluşturulur?' : 'How is a shopping list created?';
+  String get faqQuestion3 => isTurkish ? 'Çırak (AI Asistanı) nedir?' : 'What is the Assistant (AI Assistant)?';
   String get faqAnswer3 => isTurkish
-      ? 'Tarif detay sayfasında "Alışverişe ekle" butonuna tıklayarak tarifin malzemelerini alışveriş listesine ekleyebilirsiniz. Birden fazla tarif ekleyerek birleştirilmiş liste oluşturabilirsiniz.'
-      : 'You can add recipe ingredients to your shopping list by clicking the "Add to Shopping List" button on the recipe detail page. You can create a merged list by adding multiple recipes.';
-  
-  String get faqQuestion4 => isTurkish ? 'Çırak (AI Asistanı) nedir?' : 'What is the Assistant (AI Assistant)?';
-  String get faqAnswer4 => isTurkish
       ? 'Çırak, sesli komutlarla tarifleri dinlemenize ve yönetmenize yardımcı olan AI asistanıdır. Yemek yaparken elleriniz serbest kalır ve tarifleri sesli olarak dinleyebilirsiniz.'
       : 'The Assistant is an AI assistant that helps you listen to and manage recipes with voice commands. Your hands stay free while cooking and you can listen to recipes out loud.';
+  
+  String get faqQuestion4 => isTurkish ? 'Çırakı nasıl kullanabilirim?' : 'How can I use the Assistant?';
+  String get faqAnswer4 => isTurkish
+      ? 'Çırak, sesli komutlarla tarifleri dinlemenize ve yönetmenize yardımcı olan AI asistanıdır. Yemek yaparken elleriniz serbest kalır ve tarifleri sesli olarak dinleyebilirsiniz.'
+      : 'The Assistant lets you start, pause, and resume recipe narration with voice commands. Just say the provided keywords to control playback without touching your device.';
   
   String get faqQuestion5 => isTurkish ? 'Hesabımı nasıl silebilirim?' : 'How can I delete my account?';
   String get faqAnswer5 => isTurkish
@@ -124,8 +123,7 @@ class AppLocalizations {
   String get ingredients => isTurkish ? 'Malzemeler' : 'Ingredients';
   String get steps => isTurkish ? 'Adımlar' : 'Steps';
   String get step => isTurkish ? 'Adım' : 'Step';
-  String get addToShoppingList => isTurkish ? 'Alışverişe ekle' : 'Add to Shopping List';
-  String get addedToShoppingList => isTurkish ? 'Alışveriş listesine eklendi' : 'Added to shopping list';
+  String get images => isTurkish ? 'Görseller' : 'Images';
   String get like => isTurkish ? 'Beğen' : 'Like';
   String get unlike => isTurkish ? 'Beğenmekten vazgeç' : 'Unlike';
   String get vegan => isTurkish ? 'Vegan' : 'Vegan';
@@ -138,16 +136,6 @@ class AppLocalizations {
   String get voiceCommandUnavailable => isTurkish ? 'Sesli komut kullanılamıyor' : 'Voice command unavailable';
   String get voiceCommandActive => isTurkish ? 'Sesli komut aktif. "Başlat", "Durdur", "Devam" diyebilirsiniz.' : 'Voice command active. You can say "Start", "Stop", "Continue".';
 
-  // Alışveriş Listesi
-  String get myShoppingList => isTurkish ? 'Alışveriş Listem' : 'My Shopping List';
-  String get addedRecipes => isTurkish ? 'Eklenen Tarifler' : 'Added Recipes';
-  String get listItems => isTurkish ? 'Liste Ürünler' : 'List Items';
-  String get mergedList => isTurkish ? 'Tüm tariflerden birleştirilmiş liste' : 'Merged list from all recipes';
-  String get removeRecipeFromList => isTurkish ? 'Tarifi Listeden Çıkar' : 'Remove Recipe from List';
-  String get removeRecipeConfirm => isTurkish ? 'tarifini listeden çıkarmak istediğinize emin misiniz?' : 'Are you sure you want to remove this recipe from the list?';
-  String get remove => isTurkish ? 'Çıkar' : 'Remove';
-  String get emptyList => isTurkish ? 'Liste boş.' : 'List is empty.';
-  String get items => isTurkish ? 'kalem' : 'items';
 
   // Kategoriler
   String get subCategories => isTurkish ? 'Alt Kategoriler' : 'Sub Categories';
@@ -172,6 +160,7 @@ class AppLocalizations {
 
   // Tarif Ekle
   String get addRecipe => isTurkish ? 'Yeni Tarif' : 'New Recipe';
+  String get editRecipe => isTurkish ? 'Tarifi Düzenle' : 'Edit Recipe';
   String get title => isTurkish ? 'Başlık' : 'Title';
   String get required => isTurkish ? 'Zorunlu' : 'Required';
   String get optional => isTurkish ? 'Opsiyonel' : 'Optional';
@@ -182,12 +171,21 @@ class AppLocalizations {
   String get addIngredient => isTurkish ? 'Malzeme ekle' : 'Add Ingredient';
   String get addStep => isTurkish ? 'Adım ekle' : 'Add Step';
   String get ingredient => isTurkish ? 'Malzeme' : 'Ingredient';
+  String get categorizeIngredients => isTurkish ? 'Malzemeleri kategorilere ayır' : 'Categorize ingredients';
+  String get categorizeIngredientsHint =>
+      isTurkish ? 'Örn: hamur, iç harç, sos...' : 'E.g. dough, filling, sauce...';
+  String get ingredientCategory => isTurkish ? 'Malzeme kategorisi' : 'Ingredient category';
+  String get ingredientCategoryHint => isTurkish ? 'Kategori adı' : 'Category name';
+  String get addIngredientCategory => isTurkish ? 'Kategori ekle' : 'Add category';
+  String get removeIngredientCategory => isTurkish ? 'Kategoriyi sil' : 'Remove category';
+  String get uncategorizedIngredients => isTurkish ? 'Kategorisiz' : 'Uncategorized';
   String get saving => isTurkish ? 'Kaydediliyor...' : 'Saving...';
   String get recipeAdded => isTurkish ? 'Tarif eklendi' : 'Recipe added';
   String get imagesUploadFailed => isTurkish ? 'Görseller yüklenemedi, tarif görselsiz kaydediliyor' : 'Images failed to upload, saving recipe without images';
   String get selectImage => isTurkish ? 'Görsel ekle' : 'Add Image';
   String get fromGallery => isTurkish ? 'Galeriden Seç' : 'Select from Gallery';
   String get fromCamera => isTurkish ? 'Kamera' : 'Camera';
+  String get recipeUpdated => isTurkish ? 'Tarif güncellendi' : 'Recipe updated';
 
   // Beğendiklerim
   String get myFavorites => isTurkish ? 'Beğendiklerim' : 'My Favorites';
@@ -222,10 +220,6 @@ class AppLocalizations {
   String get onboardingRecipesDesc => isTurkish
       ? 'Favori tariflerini tek bir yerde topla. Kategorilere göre düzenle ve kolayca bul.'
       : 'Gather your favorite recipes in one place. Organize by categories and find them easily.';
-  String get onboardingShopping => isTurkish ? 'Akıllı Alışveriş Listesi' : 'Smart Shopping List';
-  String get onboardingShoppingDesc => isTurkish
-      ? 'Tariflerinden otomatik alışveriş listesi oluştur. Hiçbir malzemeyi unutma!'
-      : 'Automatically create shopping lists from your recipes. Never forget an ingredient!';
   String get onboardingAI => isTurkish ? 'AI Asistanı Çırak' : 'AI Assistant Chef';
   String get onboardingAIDesc => isTurkish
       ? 'Sesli komutlarla tarifleri dinle ve yönet. Yemek yaparken ellerin serbest!'

@@ -42,7 +42,9 @@ Future<void> main() async {
   };
   
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    }
   } catch (e) {
     debugPrint('Firebase initialization error: $e');
     // Firebase başlatma başarısız olsa bile uygulamayı çalıştır

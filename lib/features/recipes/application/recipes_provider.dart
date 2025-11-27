@@ -25,10 +25,40 @@ class AddRecipeState {
   }
 }
 
+class EditRecipeState {
+  final bool submitting;
+  final String? error;
+  final bool success;
+
+  const EditRecipeState({
+    this.submitting = false,
+    this.error,
+    this.success = false,
+  });
+
+  EditRecipeState copyWith({
+    bool? submitting,
+    String? error,
+    bool? success,
+  }) {
+    return EditRecipeState(
+      submitting: submitting ?? this.submitting,
+      error: error,
+      success: success ?? this.success,
+    );
+  }
+}
+
 final addRecipeControllerProvider =
     StateNotifierProvider<AddRecipeController, AddRecipeState>((ref) {
   final repo = ref.watch(recipesRepositoryProvider);
   return AddRecipeController(ref: ref, repo: repo);
+});
+
+final editRecipeControllerProvider =
+    StateNotifierProvider<EditRecipeController, EditRecipeState>((ref) {
+  final repo = ref.watch(recipesRepositoryProvider);
+  return EditRecipeController(repo: repo);
 });
 
 class AddRecipeController extends StateNotifier<AddRecipeState> {
@@ -49,6 +79,7 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
     List<String> steps = const [],
     List<String> imageUrls = const [],
     int? portions,
+    List<IngredientGroup> ingredientGroups = const [],
   }) async {
     final User? fbUser = _ref.read(feature_auth.firebaseAuthStateProvider).value;
     final ownerId = fbUser?.uid;
@@ -59,13 +90,28 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
 
     state = state.copyWith(submitting: true, error: null, createdId: null);
     try {
+      final normalizedGroups = ingredientGroups
+          .map(
+            (group) => IngredientGroup(
+              name: group.name.trim(),
+              items: group.items.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+            ),
+          )
+          .where((group) => group.items.isNotEmpty)
+          .toList(growable: false);
+
+      final normalizedIngredients = normalizedGroups.isNotEmpty
+          ? normalizedGroups.expand((g) => g.items).toList()
+          : ingredients.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
       final keywords = Recipe.buildKeywords(
         title: title,
         description: description,
         country: country,
         mainType: mainType,
         subType: subType,
-        ingredients: ingredients,
+        ingredients: normalizedIngredients,
+        ingredientGroups: normalizedGroups,
       );
 
       final normalizedCountry = (country ?? '').trim();
@@ -77,7 +123,8 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
         mainType: mainType,
         subType: subType,
         country: normalizedCountry.isEmpty ? null : normalizedCountry,
-        ingredients: ingredients.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+        ingredients: normalizedIngredients,
+        ingredientGroups: normalizedGroups,
         steps: steps.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
         imageUrls: imageUrls,
         likesCount: 0,
@@ -93,6 +140,70 @@ class AddRecipeController extends StateNotifier<AddRecipeState> {
       state = state.copyWith(submitting: false, error: e.message ?? 'Kayıt hatası');
     } catch (_) {
       state = state.copyWith(submitting: false, error: 'Bir hata oluştu');
+    }
+  }
+}
+
+class EditRecipeController extends StateNotifier<EditRecipeState> {
+  final RecipesRepository _repo;
+
+  EditRecipeController({required RecipesRepository repo})
+      : _repo = repo,
+        super(const EditRecipeState());
+
+  Future<void> submit({required Recipe recipe}) async {
+    state = state.copyWith(submitting: true, error: null, success: false);
+    try {
+      final trimmedTitle = recipe.title.trim();
+      final trimmedDescription = recipe.description?.trim();
+      final trimmedCountry = recipe.country?.trim() ?? '';
+      final normalizedCountry = trimmedCountry.isEmpty ? null : trimmedCountry;
+      final normalizedGroups = recipe.ingredientGroups
+          .map(
+            (group) => IngredientGroup(
+              name: group.name.trim(),
+              items: group.items.map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+            ),
+          )
+          .where((group) => group.items.isNotEmpty)
+          .toList(growable: false);
+
+      final normalizedIngredients = normalizedGroups.isNotEmpty
+          ? normalizedGroups.expand((g) => g.items).toList()
+          : recipe.resolvedIngredients
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+      final normalizedSteps =
+          recipe.steps.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final keywords = Recipe.buildKeywords(
+        title: trimmedTitle,
+        description: trimmedDescription,
+        country: normalizedCountry,
+        mainType: recipe.mainType,
+        subType: recipe.subType,
+        ingredients: normalizedIngredients,
+        ingredientGroups: normalizedGroups,
+      );
+      final updatedRecipe = recipe.copyWith(
+        title: trimmedTitle,
+        description: trimmedDescription,
+        country: normalizedCountry,
+        ingredients: normalizedIngredients,
+        ingredientGroups: normalizedGroups,
+        steps: normalizedSteps,
+        keywords: keywords,
+      );
+      await _repo.updateRecipe(recipe: updatedRecipe);
+      state = state.copyWith(submitting: false, success: true);
+    } on FirebaseException catch (e) {
+      state = state.copyWith(
+        submitting: false,
+        error: e.message ?? 'Güncelleme hatası',
+      );
+    } catch (_) {
+      state =
+          state.copyWith(submitting: false, error: 'Bir hata oluştu, tekrar deneyin');
     }
   }
 }
@@ -118,6 +229,23 @@ class SearchFilter {
   final String? country;
 
   const SearchFilter({this.query, this.mainType, this.subType, this.country});
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is SearchFilter &&
+        other.query == query &&
+        other.mainType == mainType &&
+        other.subType == subType &&
+        other.country == country;
+  }
+
+  @override
+  int get hashCode => Object.hash(query, mainType, subType, country);
+
+  @override
+  String toString() =>
+      'SearchFilter(query: $query, mainType: $mainType, subType: $subType, country: $country)';
 }
 
 final recipesSearchFilteredProvider =

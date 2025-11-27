@@ -56,12 +56,25 @@ class DefaultFirebaseOptions {
 
   static FirebaseOptions get android {
     // Önce .env dosyasından oku, yoksa secrets.dart'tan oku, yoksa fallback değerleri kullan
+    String _bucket() {
+      final envBucket = dotenv.env['FIREBASE_STORAGE_BUCKET'];
+      if (envBucket == null || envBucket.trim().isEmpty) {
+        return Secrets.firebaseStorageBucket;
+      }
+      final normalized = envBucket.trim();
+      if (normalized.endsWith('.firebasestorage.app')) {
+        final legacy = normalized.replaceFirst('.firebasestorage.app', '.appspot.com');
+        return legacy;
+      }
+      return normalized;
+    }
+
     return FirebaseOptions(
       apiKey: dotenv.env['FIREBASE_API_KEY'] ?? Secrets.firebaseApiKey,
       appId: dotenv.env['FIREBASE_APP_ID'] ?? Secrets.firebaseAppId,
       messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? Secrets.firebaseMessagingSenderId,
       projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? Secrets.firebaseProjectId,
-      storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'] ?? Secrets.firebaseStorageBucket,
+      storageBucket: _bucket(),
     );
   }
 }

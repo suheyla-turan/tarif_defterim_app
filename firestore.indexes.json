@@ -48,14 +48,6 @@
         { "fieldPath": "mainType", "order": "ASCENDING" },
         { "fieldPath": "country", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "shopping_lists",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ownerId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []

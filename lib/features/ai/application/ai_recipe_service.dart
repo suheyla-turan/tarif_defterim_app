@@ -77,7 +77,7 @@ class AiRecipeService {
         buf.writeln('Porsiyon: ${recipe.portions}');
       }
       buf.writeln('\nMalzemeler:');
-      for (final ing in recipe.ingredients) {
+      for (final ing in recipe.resolvedIngredients) {
         buf.writeln('- $ing');
       }
       buf.writeln('\nAdımlar:');
@@ -113,7 +113,7 @@ class AiRecipeService {
       'kıyma': 'soya kıyması',
     };
 
-    List<String> newIngredients = base.ingredients.map((ing) {
+    List<String> newIngredients = base.resolvedIngredients.map((ing) {
       var out = ing.toLowerCase();
       for (final entry in replacements.entries) {
         out = out.replaceAll(entry.key, entry.value);
@@ -132,6 +132,7 @@ class AiRecipeService {
     return base.copyWith(
       title: '${base.title} (Vegan)',
       ingredients: newIngredients,
+      ingredientGroups: const [],
       steps: newSteps,
       keywords: [...base.keywords, 'vegan'],
     );
@@ -151,7 +152,7 @@ class AiRecipeService {
       'kızart': 'fırınla',
     };
 
-    List<String> newIngredients = base.ingredients.map((ing) {
+    List<String> newIngredients = base.resolvedIngredients.map((ing) {
       var out = ing;
       for (final re in reducePatterns.keys) {
         out = out.replaceAll(re, reducePatterns[re]!);
@@ -173,6 +174,7 @@ class AiRecipeService {
     return base.copyWith(
       title: '${base.title} (Diyet)',
       ingredients: newIngredients,
+      ingredientGroups: const [],
       steps: newSteps,
       keywords: [...base.keywords, 'diyet'],
     );
@@ -201,7 +203,7 @@ class AiRecipeService {
       return fixedIngredients.any((fixed) => lower.contains(fixed));
     }
 
-    List<String> newIngredients = base.ingredients.map((ing) {
+    List<String> newIngredients = base.resolvedIngredients.map((ing) {
       // Eğer sabit kalması gereken bir malzeme ise, sadece çok az artır (max %50)
       if (shouldKeepFixed(ing)) {
         // Sabit malzemeler için maksimum %50 artış (veya aynı kalır)
@@ -232,6 +234,7 @@ class AiRecipeService {
     return base.copyWith(
       title: '${base.title} (${targetPortions} porsiyon)',
       ingredients: newIngredients,
+      ingredientGroups: const [],
       portions: targetPortions,
       keywords: [...base.keywords, 'porsiyon'],
     );
