@@ -510,11 +510,26 @@ class _RecipeDetailScreenState extends ConsumerState<RecipeDetailScreen> {
                       onPressed: userId == null
                           ? null
                           : () async {
-                              await repo.setUserLike(
-                                recipeId: currentRecipe.id,
-                                userId: userId,
-                                like: !liked,
-                              );
+                              try {
+                                await repo.setUserLike(
+                                  recipeId: currentRecipe.id,
+                                  userId: userId,
+                                  like: !liked,
+                                );
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        l10n.isTurkish
+                                            ? 'Beğeni işlemi başarısız: ${e.toString()}'
+                                            : 'Like operation failed: ${e.toString()}',
+                                      ),
+                                      duration: const Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              }
                             },
                     ),
                     IconButton(

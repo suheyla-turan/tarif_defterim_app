@@ -119,7 +119,19 @@ class RecipesRepository {
       final recipeRef = _col.doc(recipeId);
       final likeRef = _likesCol.doc(likeDocId);
       final recipeSnap = await tx.get(recipeRef);
-      if (!recipeSnap.exists) return;
+      if (!recipeSnap.exists) {
+        throw Exception('Tarif bulunamadı');
+      }
+      
+      // Mevcut beğeni durumunu kontrol et
+      final likeSnap = await tx.get(likeRef);
+      final currentlyLiked = likeSnap.exists && (likeSnap.data()?['liked'] == true);
+      
+      // Eğer durum değişmiyorsa, işlem yapma
+      if (currentlyLiked == like) {
+        return; // Zaten istenen durumda
+      }
+      
       final current = (recipeSnap.data()!['likesCount'] ?? 0) as int;
       final next = like ? current + 1 : (current > 0 ? current - 1 : 0);
       tx.update(recipeRef, {'likesCount': next});
